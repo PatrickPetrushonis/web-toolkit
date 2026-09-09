@@ -1,0 +1,14 @@
+{
+  "lint": {
+    "superseded_packages": ["oxlint", "tslint", "standard"],
+    "superseded_config_files": [".eslintrc", ".eslintrc.json", ".eslintrc.js", ".oxlintrc.json", "tslint.json"]
+  },
+  "test_runner": {
+    "superseded_packages": ["jest", "mocha", "jasmine-core"],
+    "superseded_config_files": ["jest.config.js", "jest.config.ts", ".mocharc.json"]
+  },
+  "bundler": {
+    "superseded_packages": ["webpack", "webpack-cli", "parcel"],
+    "superseded_config_files": ["webpack.config.js", ".parcelrc"]
+  }
+}

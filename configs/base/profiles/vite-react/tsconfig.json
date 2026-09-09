@@ -1,0 +1,28 @@
+{
+  // Defaults to full strict mode. One confirmed reference project left
+  // noImplicitAny/noUnusedLocals/noUnusedParameters off alongside
+  // "strict": true - that combination was never stated as an
+  // intentional project-wide policy, so it isn't carried into this
+  // template by default. Relax individual flags per-project if there's
+  // a stated reason to, rather than inheriting a permissive baseline
+  // unreviewed.
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist", "public"]
+}
