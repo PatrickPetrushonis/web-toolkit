@@ -1,0 +1,15 @@
+# All toolkit-generated output (logs and the convert.sh inventory)
+# lives under one directory, ignored as a whole rather than by
+# per-extension pattern (see README.md "Logging").
+logs/
+
+# Defensive: node_modules/dist should never legitimately appear in this
+# repo (init.sh/convert.sh scaffold into a separate --target), but
+# ignore them in case a target is ever pointed here by mistake
+node_modules/
+dist/
+
+# OS / editor cruft
+.DS_Store
+*.swp
+*~
