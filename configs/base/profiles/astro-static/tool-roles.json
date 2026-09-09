@@ -1,0 +1,6 @@
+{
+  "deploy_mechanism": {
+    "superseded_packages": ["gh-pages"],
+    "superseded_config_files": []
+  }
+}

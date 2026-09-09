@@ -1,0 +1,6 @@
+{
+  "scaffold_command": "npm create astro@latest {target} -- --template minimal --no-install --no-git --typescript strict",
+  "always_copy": ["package.json", "tsconfig.json", "eslint.config.js", ".nvmrc"],
+  "hand_authored": ["astro.config.mjs", "src/content/config.ts"],
+  "route_parity_check": "none"
+}
