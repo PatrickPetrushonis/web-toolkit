@@ -1,4 +1,4 @@
-# gh-pages-toolkit
+# Web Toolkit
 
 Bash scripts that bring GitHub Pages projects into exact parity with
 one chosen profile, at three different starting points: new,
