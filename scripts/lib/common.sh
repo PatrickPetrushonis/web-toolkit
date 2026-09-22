@@ -244,11 +244,13 @@ remove_superseded_tooling() {
     }
 
     local role
-    while IFS= read -r role; do
+    read_jq_array "$roles_file" 'keys[]'
+    for role in "${MANIFEST_ARRAY[@]}"; do
         [[ -z "$role" ]] && continue
 
         local pkg
-        while IFS= read -r pkg; do
+        read_jq_array "$roles_file" '.[$r].superseded_packages[]?' r "$role"
+        for pkg in "${MANIFEST_ARRAY[@]}"; do
             [[ -z "$pkg" ]] && continue
             [[ -f "$target_dir/package.json" ]] || continue
             if jq -e --arg p "$pkg" '(.dependencies[$p] // .devDependencies[$p]) != null' \
@@ -263,10 +265,11 @@ remove_superseded_tooling() {
                     log_info "role '$role': removed superseded package '$pkg' from $target_dir/package.json"
                 fi
             fi
-        done < <(jq -r --arg r "$role" '.[$r].superseded_packages[]?' "$roles_file")
+        done
 
         local cfg
-        while IFS= read -r cfg; do
+        read_jq_array "$roles_file" '.[$r].superseded_config_files[]?' r "$role"
+        for cfg in "${MANIFEST_ARRAY[@]}"; do
             [[ -z "$cfg" ]] && continue
             if [[ -f "$target_dir/$cfg" ]]; then
                 SUPERSEDED_REMOVED_COUNT=$((SUPERSEDED_REMOVED_COUNT+1))
@@ -277,8 +280,8 @@ remove_superseded_tooling() {
                     log_info "role '$role': removed superseded config file '$cfg' from $target_dir"
                 fi
             fi
-        done < <(jq -r --arg r "$role" '.[$r].superseded_config_files[]?' "$roles_file")
-    done < <(jq -r 'keys[]' "$roles_file")
+        done
+    done
 }
 
 # Merges master's package.json into target's: for scripts/dependencies/
@@ -380,20 +383,102 @@ apply_master_config() {
     }
 
     local f
-    while IFS= read -r f; do
-        [[ -z "$f" ]] && continue
+    read_jq_array "$manifest" '.always_copy[]?'
+    for f in "${MANIFEST_ARRAY[@]}"; do
         copy_template_file "$master_dir/$f" "$target_dir/$f"
         if (( TEMPLATE_CHANGED )); then
             APPLY_CHANGED_COUNT=$((APPLY_CHANGED_COUNT+1))
         else
             APPLY_UNCHANGED_COUNT=$((APPLY_UNCHANGED_COUNT+1))
         fi
-    done < <(jq -r '.always_copy[]?' "$manifest")
+    done
 
-    while IFS= read -r f; do
-        [[ -z "$f" ]] && continue
+    read_jq_array "$manifest" '.hand_authored[]?'
+    for f in "${MANIFEST_ARRAY[@]}"; do
         if [[ -f "$master_dir/$f" ]]; then
             log_warn "$f found in profile - review and copy manually, not auto-applied by this script"
         fi
-    done < <(jq -r '.hand_authored[]?' "$manifest")
+    done
+}
+
+# Reads JQ_FILTER's results from FILE into the global array
+# MANIFEST_ARRAY (one array element per non-empty result line).
+# Requires the caller to have already validated FILE with `jq empty`.
+# ARG_NAME/ARG_VALUE are optional; when given, they're passed to jq as
+# --arg ARG_NAME ARG_VALUE, for a filter that needs one substituted
+# variable (e.g. a role name looked up per-iteration). This exists so
+# every jq-array-into-bash read in this file (manifest.json's
+# always_copy/hand_authored/structural_markers-keys, and
+# tool-roles.json's per-role package/config-file lists) shares one
+# place that does it, rather than each repeating its own
+# `< <(jq -r ...)` process-substitution read (the construct this
+# file's set -e caveat comment warns about). The per-item logic at
+# each call site stays separate on purpose - copy-and-count, warn-only,
+# grep-and-count, and tool removal are different enough operations
+# that forcing them through one dispatcher would trade readable loops
+# for indirect function calls with no real gain (Bash_Style_Guide §4:
+# don't force an abstraction when the duplication itself is cheaper
+# than the abstraction). Sets MANIFEST_ARRAY.
+read_jq_array() {
+    local file="$1" jq_filter="$2" arg_name="${3:-}" arg_value="${4:-}"
+    MANIFEST_ARRAY=()
+    local item
+    if [[ -n "$arg_name" ]]; then
+        while IFS= read -r item; do
+            [[ -z "$item" ]] && continue
+            MANIFEST_ARRAY+=("$item")
+        done < <(jq -r --arg "$arg_name" "$arg_value" "$jq_filter" "$file")
+    else
+        while IFS= read -r item; do
+            [[ -z "$item" ]] && continue
+            MANIFEST_ARRAY+=("$item")
+        done < <(jq -r "$jq_filter" "$file")
+    fi
+}
+
+# Reads the resolved profile's manifest.json "structural_markers" map
+# (optional field - a no-op if the profile doesn't define one) and
+# checks that each listed hand_authored file still contains its
+# expected marker string in the target. This does not diff the whole
+# file - that would reintroduce the rigidity profiles exist to avoid
+# for a file that's supposed to be legitimately customized per
+# project. It only checks that whatever structural piece is actually
+# required is still present, so "this file was never hand-authored at
+# all, still the scaffold default" is distinguishable from "this file
+# was customized and is fine." Called from both init.sh and update.sh:
+# init.sh treats a missing marker as an expected to-do reminder on a
+# fresh scaffold, not an error, while update.sh folds it into its
+# drift count, since by then the review should already have happened.
+# Sets MARKER_PRESENT_COUNT and MARKER_MISSING_COUNT. Read-only;
+# unaffected by DRY_RUN.
+check_structural_markers() {
+    local profile_dir="$1" target_dir="$2"
+    MARKER_PRESENT_COUNT=0
+    MARKER_MISSING_COUNT=0
+    local manifest="${profile_dir}/manifest.json"
+    [[ -f "$manifest" ]] || return
+    jq empty "$manifest" || { log_error "manifest.json is not valid JSON: $manifest"; exit 1; }
+
+    local has_markers
+    has_markers="$(jq -r 'has("structural_markers")' "$manifest")"
+    [[ "$has_markers" == "true" ]] || return
+
+    local file
+    read_jq_array "$manifest" '.structural_markers | keys[]?'
+    for file in "${MANIFEST_ARRAY[@]}"; do
+        local marker
+        marker="$(jq -r --arg f "$file" '.structural_markers[$f] // empty' "$manifest")"
+        [[ -z "$marker" ]] && continue
+        if [[ ! -f "$target_dir/$file" ]]; then
+            log_warn "cannot check structural marker, file missing: $target_dir/$file"
+            continue
+        fi
+        if grep -q -- "$marker" "$target_dir/$file"; then
+            log_info "structural marker present in $file: '$marker'"
+            MARKER_PRESENT_COUNT=$((MARKER_PRESENT_COUNT+1))
+        else
+            log_warn "structural marker MISSING from $file: expected '$marker' - this file may still be the scaffold default, not yet hand-authored per the profile (see README 'Hand-authored files are never auto-applied')"
+            MARKER_MISSING_COUNT=$((MARKER_MISSING_COUNT+1))
+        fi
+    done
 }

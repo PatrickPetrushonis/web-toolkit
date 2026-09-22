@@ -88,10 +88,35 @@ apply_master_config "$PROFILE_DIR" "$TARGET_DIR"
 SYNCED=$((SYNCED + APPLY_CHANGED_COUNT))
 UNCHANGED=$((UNCHANGED + APPLY_UNCHANGED_COUNT))
 
+if (( DRY_RUN )); then
+    log_info "[DRY RUN] would run: npm install (in $TARGET_DIR)"
+    INSTALLED="skipped (dry run)"
+else
+    log_info "installing dependencies"
+    ( cd "$TARGET_DIR" && npm install )
+    INSTALLED="yes"
+fi
+
+# Checked here too, not just in update.sh: a project that only ever
+# runs init.sh and never update.sh again would otherwise get zero
+# protection from this check. Not folded into SYNCED/UNCHANGED - right
+# after a fresh scaffold these markers are expected to be missing,
+# not drifted; this is a to-do reminder for this run, not an error.
+# Skipped in a dry run: TARGET_DIR doesn't exist yet in that case
+# (the scaffold step itself was skipped), so there's nothing to check.
+if (( DRY_RUN )); then
+    MARKER_MISSING_COUNT=0
+    log_info "[DRY RUN] would check structural markers after applying"
+else
+    check_structural_markers "$PROFILE_DIR" "$TARGET_DIR"
+fi
+
 echo
 echo "Summary:"
 echo "  Profile:              $PROFILE"
 echo "  Brought into parity: $SYNCED"
 echo "  Already in sync:     $UNCHANGED"
+echo "  Installed:            $INSTALLED"
+echo "  Still to hand-author:  $MARKER_MISSING_COUNT (see warnings above)"
 echo "  Log:                 $LOG_FILE"
 (( DRY_RUN )) && echo "  Mode:                 DRY RUN - no files were written. Re-run with --apply to write."

@@ -56,6 +56,10 @@ apply_master_config "$PROFILE_DIR" "$TARGET_DIR"
 DRIFTED=$((DRIFTED + APPLY_CHANGED_COUNT))
 IN_SYNC=$((IN_SYNC + APPLY_UNCHANGED_COUNT))
 
+check_structural_markers "$PROFILE_DIR" "$TARGET_DIR"
+DRIFTED=$((DRIFTED + MARKER_MISSING_COUNT))
+IN_SYNC=$((IN_SYNC + MARKER_PRESENT_COUNT))
+
 # Route parity check: static <Route path="..."> entries in App.tsx
 # (excluding dynamic segments and the catch-all) versus the routes
 # array in vite.config.ts. Grep-based, not a real JSX/TS parser -

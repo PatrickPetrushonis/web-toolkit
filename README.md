@@ -286,6 +286,13 @@ stale here if repeated.
   evidence outranks a changelog, but it's still not a guarantee this
   profile's exact dependency tree resolves identically for you; see
   the verification steps in "New project" below.
+- **`react-router-dom` is pinned to a specific major version
+  (`^7.7.0`)**, forced onto every child the same way any other
+  dependency this profile declares is. If a project was originally
+  written against an older major (v6-era APIs still turn up in older
+  tutorials), confirm routing still behaves correctly after
+  `init.sh`/`update.sh` runs; there's no per-project exception for
+  this key.
 - **`.nvmrc` floats on `lts/*`** rather than pinning an exact Node
   version, a deliberate divergence from the exact-pin approach used
   for `vite`/`@vitejs/plugin-react`, not an inconsistency. Node version
@@ -335,16 +342,17 @@ fresh scaffold, would be preserved) and overwrites every file in the
 profile's `manifest.json` `always_copy` list with the profile's
 versions. The scaffold tool ships its own default config files;
 `copy_template_file` always overwrites rather than skipping on an
-existing file, so the profile's versions replace them. Stops with a
-warning to hand-review each file in `manifest.json`'s `hand_authored`
-list.
+existing file, so the profile's versions replace them. `init.sh` then
+runs `npm install` itself once parity is applied (skipped in a dry
+run), so there's no separate install step to run afterward. Stops
+with a warning to hand-review each file in `manifest.json`'s
+`hand_authored` list.
 
 For `vite-react`, verify the pin actually resolves in this project
 before writing application code; a real precedent for one repo isn't
 a guarantee for every dependency tree:
 
 ```bash
-npm install
 npx vite -v      # expect a 7.x version, not 8.x
 npm run build    # must complete without plugin resolution errors
 ```
@@ -499,6 +507,24 @@ with its own Pages site, or submodule child that only builds and
 verifies itself) before the first publish, since it changes whether
 this repo has a publish step of its own at all.
 
+**If a project scaffolded via `init.sh` is meant to become a submodule
+of another repo (this toolkit's own `web/` included), don't scaffold
+it with `--target` pointed inside that parent repo's working tree to
+get there.** Neither profile's `scaffold_command` initializes git on
+its own (`create-vite` never does by default; `astro-static`'s command
+already passes `--no-git` explicitly), so nesting the target there
+doesn't create an embedded-repo warning: it just leaves plain files
+sitting inside the parent's own tree with no `.git` of their own. The
+real risk is `git add`/`git commit` inside the parent absorbing those
+files directly into the parent's own tracked history before a
+submodule relationship exists at all; untangling that afterward
+(removing them from the parent's tracked tree without deleting the
+actual files, then re-adding properly) is real, avoidable work. Push
+the scaffolded project to its own remote first, then run
+`git submodule add <remote-url> <path>` from inside the parent repo,
+which clones fresh from that remote; only then does the parent's git
+know what's meant to live at that path.
+
 ## Logging
 
 Every script's `LOG_FILE`, and `convert.sh`'s inventory JSON, resolve
@@ -596,6 +622,17 @@ from, not generated output, and stays tracked.
   checks for a missing flag, a missing directory, or a missing
   profile, each with its own distinct error message, so no script's
   copy of this logic can drift from another's.
+- **`check_structural_markers` runs from both `init.sh` and
+  `update.sh`, with different meaning at each call site.** It reads a
+  profile's optional `structural_markers` map and greps each listed
+  `hand_authored` file for its expected marker string, catching the
+  case where that file was never actually hand-authored at all and is
+  still the scaffold tool's untouched default. `init.sh` treats a
+  missing marker as an expected to-do reminder right after a fresh
+  scaffold (and skips the check entirely in a dry run, since the
+  target doesn't exist yet to check); `update.sh` folds the same
+  result into its drift count, since by then the review should
+  already have happened.
 - **Node version checks extract the numeric major version and compare
   with `(( ))`**, never `[[ x < y ]]` string comparison: `"v9"` sorts
   after `"v22"` lexicographically, a real bug class documented in
