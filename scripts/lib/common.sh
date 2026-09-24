@@ -56,7 +56,11 @@ fi
 # across all three scripts. Sets nothing.
 reject_if_already_set() {
     local varname="$1" msg="$2"
-    [[ -n "${!varname}" ]] && { echo "ERROR: $msg" >&2; exit 1; }
+    if [[ -n "${!varname}" ]]; then
+        echo "ERROR: $msg" >&2
+        exit 1
+    fi
+    return 0
 }
 
 # Validates that MASTER_CONFIG and PROFILE (set by the caller's own
@@ -204,7 +208,9 @@ report_package_changes() {
             | select(($t[$k] // null) != $m[$k])
             | "  \($f).\($k): \($t[$k] // "(none)") -> \($m[$k]) (forced to match master)"
         ' "$target_pkg" "$master_pkg")" || true
-        [[ -n "$forced" ]] && while IFS= read -r line; do log_info "$line"; done <<< "$forced"
+        if [[ -n "$forced" ]]; then
+            while IFS= read -r line; do log_info "$line"; done <<< "$forced"
+        fi
 
         preserved="$(jq -s -r --arg f "$field" '
             (.[0][$f] // {}) as $t | (.[1][$f] // {}) as $m
@@ -212,8 +218,11 @@ report_package_changes() {
             | select(($m[$k] // null) == null)
             | "  \($f).\($k): \($t[$k]) (child-only, preserved)"
         ' "$target_pkg" "$master_pkg")" || true
-        [[ -n "$preserved" ]] && while IFS= read -r line; do log_info "$line"; done <<< "$preserved"
+        if [[ -n "$preserved" ]]; then
+            while IFS= read -r line; do log_info "$line"; done <<< "$preserved"
+        fi
     done
+    return 0
 }
 
 # Reads master_dir/tool-roles.json (master_dir is a resolved profile
@@ -236,7 +245,7 @@ remove_superseded_tooling() {
     local master_dir="$1" target_dir="$2"
     SUPERSEDED_REMOVED_COUNT=0
     local roles_file="${master_dir}/tool-roles.json"
-    [[ -f "$roles_file" ]] || return
+    [[ -f "$roles_file" ]] || return 0
 
     jq empty "$roles_file" || {
         log_error "tool-roles.json is not valid JSON, skipping tool-role checks: $roles_file"
@@ -456,12 +465,12 @@ check_structural_markers() {
     MARKER_PRESENT_COUNT=0
     MARKER_MISSING_COUNT=0
     local manifest="${profile_dir}/manifest.json"
-    [[ -f "$manifest" ]] || return
+    [[ -f "$manifest" ]] || return 0
     jq empty "$manifest" || { log_error "manifest.json is not valid JSON: $manifest"; exit 1; }
 
     local has_markers
     has_markers="$(jq -r 'has("structural_markers")' "$manifest")"
-    [[ "$has_markers" == "true" ]] || return
+    [[ "$has_markers" == "true" ]] || return 0
 
     local file
     read_jq_array "$manifest" '.structural_markers | keys[]?'
