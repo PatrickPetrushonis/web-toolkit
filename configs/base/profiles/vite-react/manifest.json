@@ -12,5 +12,15 @@
   "structural_markers": {
     "vite.config.ts": "@vitejs/plugin-react"
   },
+  "merge_fields": ["scripts", "dependencies", "devDependencies", "engines", "type"],
+  "requires_files": ["package-lock.json"],
+  "review_patterns": [
+    {
+      "file": "vite.config.ts",
+      "pattern": "outDir",
+      "message": "the deploy workflow uploads ./dist; confirm the build output directory"
+    }
+  ],
+  "deploy_branch": "main",
   "route_parity_check": "none"
 }

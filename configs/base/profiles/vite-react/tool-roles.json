@@ -2,12 +2,23 @@
   "lint": {
     "superseded_packages": [
       "eslint",
-      "@eslint/js",
       "typescript-eslint",
-      "eslint-plugin-react-hooks",
-      "eslint-plugin-react-refresh",
       "tslint",
       "standard"
+    ],
+    "superseded_package_patterns": [
+      "^@eslint/",
+      "^@typescript-eslint/",
+      "^eslint-plugin-",
+      "^eslint-config-",
+      "^eslint-import-resolver-"
+    ],
+    "superseded_package_json_fields": [
+      "eslintConfig"
+    ],
+    "review_script_patterns": [
+      "eslint",
+      "tslint"
     ],
     "superseded_config_files": [
       "eslint.config.js",
@@ -28,7 +39,16 @@
     ]
   },
   "deploy_mechanism": {
-    "superseded_packages": ["gh-pages"],
+    "superseded_packages": [
+      "gh-pages"
+    ],
+    "superseded_scripts": [
+      "predeploy",
+      "deploy"
+    ],
+    "review_script_patterns": [
+      "gh-pages"
+    ],
     "superseded_config_files": []
   }
 }
