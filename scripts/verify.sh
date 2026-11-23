@@ -17,9 +17,11 @@ Usage: verify.sh --target <dir> [--install] [--context <n>]
   --context <n>    Source lines shown before and after each type error
                    (default 4).
 
-Steps, in order: tsc -b, npm run build, npm run lint. Every step runs
+Steps, in order: type check, npm run build, npm run lint. The type check
+is `npm run type-check` when the target's package.json has that script
+(an Astro project's `astro check`), otherwise `tsc -b`. Every step runs
 even if an earlier one fails, so one run reports all three results. A
-failed type check prints an error count per code and per file, then each
+failed `tsc -b` prints an error count per code and per file, then each
 error with its surrounding source lines.
 USAGE
 }
@@ -137,7 +139,11 @@ elif [[ ! -d "$TARGET_DIR/node_modules" ]]; then
     exit 1
 fi
 
-run_step "type check" ./node_modules/.bin/tsc -b
+if jq -e '.scripts["type-check"] // empty' "${TARGET_DIR}/package.json" >/dev/null 2>&1; then
+    run_step "type check" npm run type-check
+else
+    run_step "type check" ./node_modules/.bin/tsc -b
+fi
 run_step "build" npm run build
 run_step "lint" npm run lint
 
