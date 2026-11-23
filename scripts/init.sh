@@ -119,4 +119,6 @@ echo "  Already in sync:     $UNCHANGED"
 echo "  Installed:            $INSTALLED"
 echo "  Still to hand-author:  $MARKER_MISSING_COUNT (see warnings above)"
 echo "  Log:                 $LOG_FILE"
-(( DRY_RUN )) && echo "  Mode:                 DRY RUN - no files were written. Re-run with --apply to write."
+if (( DRY_RUN )); then
+    echo "  Mode:                 DRY RUN - no files were written. Re-run with --apply to write."
+fi
