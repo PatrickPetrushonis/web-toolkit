@@ -294,7 +294,7 @@ remove_superseded_tooling() {
 }
 
 # Merges master's package.json into target's: for scripts/dependencies/
-# devDependencies, any key master declares is forced to master's exact
+# devDependencies/engines, any key master declares is forced to master's exact
 # value (no per-child override); any key present only in target is left
 # untouched. Target's own name/version/private/type and any other
 # top-level fields are preserved as-is - master never dictates those.
@@ -318,6 +318,7 @@ merge_package_json() {
         | .scripts        = (($target.scripts // {})        + ($master.scripts // {}))
         | .dependencies    = (($target.dependencies // {})    + ($master.dependencies // {}))
         | .devDependencies = (($target.devDependencies // {}) + ($master.devDependencies // {}))
+        | (if $master.engines then .engines = (($target.engines // {}) + $master.engines) else . end)
     ' "$target_pkg" "$master_pkg")"
 
     if diff -q <(jq -S . "$target_pkg") <(echo "$merged" | jq -S .) &>/dev/null; then
@@ -326,7 +327,9 @@ merge_package_json() {
         MERGE_CHANGED=1
     fi
 
-    if (( DRY_RUN )); then
+    if (( ! MERGE_CHANGED )); then
+        log_info "already in sync with master: $target_pkg"
+    elif (( DRY_RUN )); then
         log_info "[DRY RUN] would bring package.json into parity with master: $target_pkg"
     else
         echo "$merged" | jq -S . > "$target_pkg"
