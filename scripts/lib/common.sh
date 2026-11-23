@@ -200,7 +200,18 @@ copy_template_file() {
 report_package_changes() {
     local target_pkg="$1" master_pkg="$2"
     local field
-    for field in scripts dependencies devDependencies; do
+    for field in $(jq -r '.[]' <<< "$MERGE_FIELDS_JSON"); do
+        local ftype
+        ftype="$(jq -r --arg f "$field" '.[$f] | type' "$master_pkg")"
+        if [[ "$ftype" != "object" ]]; then
+            local tval mval
+            tval="$(jq -r --arg f "$field" '.[$f] // "(none)"' "$target_pkg")"
+            mval="$(jq -r --arg f "$field" '.[$f] // "(none)"' "$master_pkg")"
+            if [[ "$mval" != "(none)" && "$tval" != "$mval" ]]; then
+                log_info "  ${field}: ${tval} -> ${mval} (forced to match master)"
+            fi
+            continue
+        fi
         local forced preserved
         forced="$(jq -s -r --arg f "$field" '
             (.[0][$f] // {}) as $t | (.[1][$f] // {}) as $m
@@ -290,6 +301,11 @@ remove_superseded_tooling() {
                 fi
             fi
         done
+
+        remove_superseded_patterns "$roles_file" "$role" "$target_dir"
+        remove_superseded_fields "$roles_file" "$role" "$target_dir"
+        remove_superseded_scripts "$roles_file" "$role" "$target_dir" "$master_dir"
+        warn_superseded_scripts "$roles_file" "$role" "$target_dir" "$master_dir"
     done
 }
 
@@ -312,13 +328,13 @@ merge_package_json() {
     report_package_changes "$target_pkg" "$master_pkg"
 
     local merged
-    merged="$(jq -s '
+    merged="$(jq -s --argjson fields "$MERGE_FIELDS_JSON" '
         .[0] as $target | .[1] as $master |
-        $target
-        | .scripts        = (($target.scripts // {})        + ($master.scripts // {}))
-        | .dependencies    = (($target.dependencies // {})    + ($master.dependencies // {}))
-        | .devDependencies = (($target.devDependencies // {}) + ($master.devDependencies // {}))
-        | (if $master.engines then .engines = (($target.engines // {}) + $master.engines) else . end)
+        reduce $fields[] as $f ($target;
+            if $master[$f] == null then .
+            elif ($master[$f] | type) == "object" then .[$f] = ((.[$f] // {}) + $master[$f])
+            else .[$f] = $master[$f]
+            end)
     ' "$target_pkg" "$master_pkg")"
 
     if diff -q <(jq -S . "$target_pkg") <(echo "$merged" | jq -S .) &>/dev/null; then
@@ -365,6 +381,7 @@ apply_master_config() {
     APPLY_CHANGED_COUNT=0
     APPLY_UNCHANGED_COUNT=0
 
+    load_merge_fields "$master_dir"
     remove_superseded_tooling "$master_dir" "$target_dir"
     APPLY_CHANGED_COUNT=$((APPLY_CHANGED_COUNT + SUPERSEDED_REMOVED_COUNT))
 
@@ -493,4 +510,242 @@ check_structural_markers() {
             MARKER_MISSING_COUNT=$((MARKER_MISSING_COUNT+1))
         fi
     done
+}
+
+# --- fold additions (web_toolkit_fold.sh) ---------------------------------
+# Defaults for manifest-driven package.json merging. A profile's
+# manifest.json may declare "merge_fields"; without it the merge covers
+# exactly the three fields it always did. Sets MERGE_FIELDS_JSON.
+: "${MERGE_FIELDS_JSON:=[\"scripts\",\"dependencies\",\"devDependencies\"]}"
+
+load_merge_fields() {
+    local manifest="${1}/manifest.json" declared
+    MERGE_FIELDS_JSON='["scripts","dependencies","devDependencies"]'
+    [[ -f "$manifest" ]] || return 0
+    jq empty "$manifest" || { log_error "manifest.json is not valid JSON: $manifest"; exit 1; }
+    declared="$(jq -c '.merge_fields // empty' "$manifest")"
+    if [[ -n "$declared" ]]; then
+        MERGE_FIELDS_JSON="$declared"
+    fi
+    return 0
+}
+
+# Role keys read by the three functions below, all optional per role in
+# tool-roles.json (absent means a no-op):
+#   superseded_package_patterns  regexes matched against dependency and
+#                                devDependency names (jq test(); names
+#                                already in superseded_packages are skipped)
+#   superseded_package_json_fields  top-level package.json fields removed
+#   review_script_patterns       regexes matched against the child's own
+#                                scripts; a match is a warning only, since
+#                                the script may be intentional. Scripts the
+#                                profile itself declares are skipped (the
+#                                merge overwrites them). Sets nothing.
+# The first two add to SUPERSEDED_REMOVED_COUNT. All respect DRY_RUN.
+remove_superseded_patterns() {
+    local roles_file="$1" role="$2" target_dir="$3"
+    [[ -f "$target_dir/package.json" ]] || return 0
+    read_jq_array "$roles_file" '.[$r].superseded_package_patterns[]?' r "$role"
+    local patterns=("${MANIFEST_ARRAY[@]}")
+    local re name matched updated
+    for re in "${patterns[@]}"; do
+        [[ -z "$re" ]] && continue
+        jq -n --arg re "$re" '"" | test($re)' >/dev/null 2>&1 || {
+            log_error "invalid regex in tool-roles.json (role '$role'): $re"
+            exit 1
+        }
+        matched="$(jq -r --arg re "$re" '((.dependencies // {}) + (.devDependencies // {})) | keys[] | select(test($re))' "$target_dir/package.json")"
+        while IFS= read -r name; do
+            [[ -z "$name" ]] && continue
+            if jq -e --arg r "$role" --arg n "$name" '(.[$r].superseded_packages // []) | index($n) != null' "$roles_file" >/dev/null 2>&1; then
+                continue
+            fi
+            SUPERSEDED_REMOVED_COUNT=$((SUPERSEDED_REMOVED_COUNT+1))
+            if (( DRY_RUN )); then
+                log_info "[DRY RUN] role '$role': would remove superseded package '$name' (matches /$re/) from $target_dir/package.json"
+            else
+                updated="$(jq --arg p "$name" 'del(.dependencies[$p]?) | del(.devDependencies[$p]?)' "$target_dir/package.json")"
+                echo "$updated" | jq -S . > "$target_dir/package.json"
+                log_info "role '$role': removed superseded package '$name' (matches /$re/) from $target_dir/package.json"
+            fi
+        done <<< "$matched"
+    done
+    return 0
+}
+
+remove_superseded_fields() {
+    local roles_file="$1" role="$2" target_dir="$3"
+    [[ -f "$target_dir/package.json" ]] || return 0
+    read_jq_array "$roles_file" '.[$r].superseded_package_json_fields[]?' r "$role"
+    local fields=("${MANIFEST_ARRAY[@]}")
+    local field updated
+    for field in "${fields[@]}"; do
+        [[ -z "$field" ]] && continue
+        jq -e --arg f "$field" 'has($f)' "$target_dir/package.json" >/dev/null 2>&1 || continue
+        SUPERSEDED_REMOVED_COUNT=$((SUPERSEDED_REMOVED_COUNT+1))
+        if (( DRY_RUN )); then
+            log_info "[DRY RUN] role '$role': would remove superseded package.json field '$field' from $target_dir/package.json"
+        else
+            updated="$(jq --arg f "$field" 'del(.[$f])' "$target_dir/package.json")"
+            echo "$updated" | jq -S . > "$target_dir/package.json"
+            log_info "role '$role': removed superseded package.json field '$field' from $target_dir/package.json"
+        fi
+    done
+    return 0
+}
+
+warn_superseded_scripts() {
+    local roles_file="$1" role="$2" target_dir="$3" master_dir="$4"
+    [[ -f "$target_dir/package.json" ]] || return 0
+    read_jq_array "$roles_file" '.[$r].review_script_patterns[]?' r "$role"
+    local patterns=("${MANIFEST_ARRAY[@]}")
+    local master_scripts="{}"
+    if [[ -f "$master_dir/package.json" ]]; then
+        master_scripts="$(jq -c '.scripts // {}' "$master_dir/package.json")"
+    fi
+    local re hits line
+    for re in "${patterns[@]}"; do
+        [[ -z "$re" ]] && continue
+        hits="$(jq -r --arg re "$re" --argjson ms "$master_scripts" '(.scripts // {}) | to_entries[] | select($ms[.key] == null) | select(.value | test($re)) | "\(.key): \(.value)"' "$target_dir/package.json")"
+        while IFS= read -r line; do
+            if [[ -n "$line" ]]; then
+                log_warn "role '$role': script mentions /$re/, review by hand - $line"
+            fi
+        done <<< "$hits"
+    done
+    return 0
+}
+
+# Manifest checks run by update.sh after the profile is applied. All are
+# optional manifest fields (absent means a no-op) and read-only.
+#   requires_files   files the target must have for the profile to work
+#                    (e.g. package-lock.json, since the workflow runs
+#                    npm ci). Sets REQUIRED_MISSING_COUNT; counted as drift.
+#   review_patterns  [{file, pattern, message}]: a warning when the
+#                    target's file matches the ERE pattern. Not drift.
+check_required_files() {
+    local profile_dir="$1" target_dir="$2"
+    REQUIRED_MISSING_COUNT=0
+    local manifest="${profile_dir}/manifest.json" f
+    [[ -f "$manifest" ]] || return 0
+    read_jq_array "$manifest" '.requires_files[]?'
+    local files=("${MANIFEST_ARRAY[@]}")
+    for f in "${files[@]}"; do
+        [[ -z "$f" ]] && continue
+        if [[ -f "$target_dir/$f" ]]; then
+            log_info "required file present: $f"
+        else
+            log_warn "required file MISSING: $f (required by profile '$PROFILE')"
+            REQUIRED_MISSING_COUNT=$((REQUIRED_MISSING_COUNT+1))
+        fi
+    done
+    return 0
+}
+
+check_review_patterns() {
+    local profile_dir="$1" target_dir="$2"
+    local manifest="${profile_dir}/manifest.json" entry file pattern message
+    [[ -f "$manifest" ]] || return 0
+    while IFS= read -r entry; do
+        [[ -z "$entry" ]] && continue
+        file="$(jq -r '.file' <<< "$entry")"
+        pattern="$(jq -r '.pattern' <<< "$entry")"
+        message="$(jq -r '.message // "review by hand"' <<< "$entry")"
+        [[ -f "$target_dir/$file" ]] || continue
+        if grep -qE -- "$pattern" "$target_dir/$file"; then
+            log_warn "$file matches /$pattern/: $message"
+        fi
+    done < <(jq -c '.review_patterns[]?' "$manifest")
+    return 0
+}
+
+# Compares the target's default branch with the manifest's "deploy_branch"
+# (the branch the profile's workflow triggers on). Default branch is
+# origin/HEAD, else the checked-out branch. Skipped, with a log line, when
+# the manifest declares none, the target is not a git work tree, or the
+# branch cannot be determined. Sets DEPLOY_BRANCH_MISMATCH (0 or 1).
+check_deploy_branch() {
+    local profile_dir="$1" target_dir="$2"
+    DEPLOY_BRANCH_MISMATCH=0
+    local manifest="${profile_dir}/manifest.json" expected actual
+    [[ -f "$manifest" ]] || return 0
+    expected="$(jq -r '.deploy_branch // empty' "$manifest")"
+    [[ -n "$expected" ]] || return 0
+    if ! git -C "$target_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        log_info "deploy branch check skipped: target is not a git work tree"
+        return 0
+    fi
+    actual="$(git -C "$target_dir" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)" || actual=""
+    actual="${actual#origin/}"
+    if [[ -z "$actual" ]]; then
+        actual="$(git -C "$target_dir" branch --show-current 2>/dev/null)" || actual=""
+    fi
+    if [[ -z "$actual" ]]; then
+        log_warn "deploy branch check skipped: could not determine the target's default branch"
+        return 0
+    fi
+    if [[ "$actual" == "$expected" ]]; then
+        log_info "deploy branch matches profile: $expected"
+    else
+        log_warn "target's default branch is '$actual' but profile '$PROFILE' deploys from '$expected'; the workflow would never trigger"
+        DEPLOY_BRANCH_MISMATCH=1
+    fi
+    return 0
+}
+
+# Sets TARGET_DIRTY to 1 when the target (path-limited, so a project inside
+# a larger repo ignores its siblings) has uncommitted or untracked changes.
+check_clean_tree() {
+    local target_dir="$1"
+    TARGET_DIRTY=0
+    git -C "$target_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+    if [[ -n "$(git -C "$target_dir" status --porcelain -- . 2>/dev/null)" ]]; then
+        TARGET_DIRTY=1
+    fi
+    return 0
+}
+
+# Writes logs/backups/<name>-<timestamp>.tar.gz of the target, leaving out
+# node_modules, dist and .git. Sets BACKUP_FILE.
+backup_target() {
+    local target_dir="$1"
+    local backups_dir="${SCRIPT_DIR}/../logs/backups"
+    mkdir -p -- "$backups_dir"
+    local canonical base
+    canonical="$(cd "$target_dir" && pwd)"
+    base="$(basename -- "$canonical")"
+    BACKUP_FILE="$(cd "$backups_dir" && pwd)/${base}-$(date +%Y%m%d-%H%M%S).tar.gz"
+    tar -czf "$BACKUP_FILE" --exclude=node_modules --exclude=dist --exclude=.git \
+        -C "$(dirname -- "$canonical")" "$base"
+}
+
+# --- fold additions 2 (superseded scripts) --------------------------------
+# Role key superseded_scripts: exact names of the child's scripts removed
+# when a role replaces the tooling they drive (the old branch-deploy hooks
+# "predeploy" and "deploy"). Each removal logs the script's command. Scripts
+# the profile itself declares are skipped. Adds to SUPERSEDED_REMOVED_COUNT;
+# respects DRY_RUN.
+remove_superseded_scripts() {
+    local roles_file="$1" role="$2" target_dir="$3" master_dir="$4"
+    [[ -f "$target_dir/package.json" ]] || return 0
+    read_jq_array "$roles_file" '.[$r].superseded_scripts[]?' r "$role"
+    local names=("${MANIFEST_ARRAY[@]}")
+    local name value updated
+    for name in "${names[@]}"; do
+        [[ -z "$name" ]] && continue
+        if [[ -f "$master_dir/package.json" ]] && jq -e --arg n "$name" '(.scripts // {}) | has($n)' "$master_dir/package.json" >/dev/null 2>&1; then
+            continue
+        fi
+        value="$(jq -r --arg n "$name" '.scripts[$n] // empty' "$target_dir/package.json")"
+        [[ -n "$value" ]] || continue
+        SUPERSEDED_REMOVED_COUNT=$((SUPERSEDED_REMOVED_COUNT+1))
+        if (( DRY_RUN )); then
+            log_info "[DRY RUN] role '$role': would remove superseded script '$name' ($value) from $target_dir/package.json"
+        else
+            updated="$(jq --arg n "$name" 'del(.scripts[$n])' "$target_dir/package.json")"
+            echo "$updated" | jq -S . > "$target_dir/package.json"
+            log_info "role '$role': removed superseded script '$name' ($value) from $target_dir/package.json"
+        fi
+    done
+    return 0
 }
