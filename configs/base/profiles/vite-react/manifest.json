@@ -1,5 +1,5 @@
 {
-  "scaffold_command": "npm create vite@latest {target} -- --template react-ts",
+  "scaffold_command": "npm create vite@latest {target} -- --template react-ts --no-interactive",
   "always_copy": [
     "tsconfig.json",
     "tsconfig.app.json",
@@ -8,12 +8,22 @@
     ".nvmrc",
     ".github/workflows/deploy.yml"
   ],
-  "hand_authored": ["vite.config.ts"],
+  "hand_authored": [
+    "vite.config.ts"
+  ],
   "structural_markers": {
     "vite.config.ts": "@vitejs/plugin-react"
   },
-  "merge_fields": ["scripts", "dependencies", "devDependencies", "engines", "type"],
-  "requires_files": ["package-lock.json"],
+  "merge_fields": [
+    "scripts",
+    "dependencies",
+    "devDependencies",
+    "engines",
+    "type"
+  ],
+  "requires_files": [
+    "package-lock.json"
+  ],
   "review_patterns": [
     {
       "file": "vite.config.ts",
