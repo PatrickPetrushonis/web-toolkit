@@ -41,8 +41,10 @@ web/
 └── scripts/
     ├── init.sh
     ├── update.sh
-        ├── convert.sh
+    ├── convert.sh
     ├── verify.sh
+    ├── preflight.sh
+    ├── inventory.sh
     └── lib/
         └── common.sh
 ```
@@ -129,18 +131,33 @@ exactly one enforced baseline per category, chosen once per project, at
   list of its own. An `always_copy` entry whose file is missing from
   the profile only logs a warning and is skipped, so a typo in a
   manifest fails quietly.
-  `package.json` is merged field-by-field regardless of profile
-  (`scripts`, `dependencies`, `devDependencies` and `engines`): the
-  profile's value always wins on any shared key, child-only keys are
-  preserved, and the target's own `name`, `version`, `private`, `type`
-  and other top-level fields are left as they are. It must not be
-  listed in `always_copy`: the copy runs after the merge and would
-  overwrite the child-only keys the merge just preserved.
+  `package.json` is merged field by field, never copied. The fields
+  come from the manifest's optional `merge_fields` list (default:
+  `scripts`, `dependencies`, `devDependencies`; `vite-react` adds
+  `engines` and `type`). For an object field the profile's value wins
+  on any shared key and child-only keys are preserved; for a scalar
+  field such as `type` the profile's value replaces the child's. The
+  target's `name`, `version`, `private` and every field not listed
+  stay as they are. `package.json` must not be listed in
+  `always_copy`: the copy runs after the merge and would overwrite the
+  child-only keys the merge just preserved.
+- `manifest.json` may also declare these optional fields; each is a
+  no-op when absent. `requires_files`: files the target must have
+  (`vite-react` requires `package-lock.json`, since its workflow runs
+  `npm ci`); a missing one counts as drift. `review_patterns`: `{file,
+  pattern, message}` entries that warn when the target's file matches
+  the pattern (`vite-react` warns on `outDir` in `vite.config.ts`,
+  because the workflow uploads `./dist`); a warning, not drift.
+  `deploy_branch`: the branch the profile's workflow triggers on
+  (`main`); `update.sh` compares it with the target's default branch
+  (`origin/HEAD`, else the checked-out branch), counts a mismatch as
+  drift, and refuses `--apply` until it is fixed, since the workflow
+  would never trigger.
 - `manifest.json` also declares `scaffold_command` (the actual
   `npm create ...` invocation `init.sh` runs, since a Vite scaffold and
   an Astro scaffold are different tools entirely) and
   `route_parity_check` (which named check, if any, `update.sh` should
-  run for this profile, see "The four scripts" below).
+  run for this profile, see "The six scripts" below).
 
 ### Tool roles
 
@@ -160,30 +177,49 @@ supersedes. `vite-react`'s:
 ```json
 {
   "lint": {
-    "superseded_packages": [
-      "eslint", "@eslint/js", "typescript-eslint",
-      "eslint-plugin-react-hooks", "eslint-plugin-react-refresh",
-      "tslint", "standard"
+    "superseded_packages": ["eslint", "typescript-eslint", "tslint", "standard"],
+    "superseded_package_patterns": [
+      "^@eslint/",
+      "^@typescript-eslint/",
+      "^eslint-plugin-",
+      "^eslint-config-",
+      "^eslint-import-resolver-"
     ],
+    "superseded_package_json_fields": ["eslintConfig"],
+    "review_script_patterns": ["eslint", "tslint"],
     "superseded_config_files": [
-      "eslint.config.js", "eslint.config.mjs", "eslint.config.cjs",
-      "eslint.config.ts", "eslint.config.mts", "eslint.config.cts",
-      ".eslintrc", ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.mjs",
-      ".eslintrc.yaml", ".eslintrc.yml", ".eslintrc.json",
-      ".eslintignore", "tslint.json"
+      "eslint.config.js",
+      "eslint.config.mjs",
+      "eslint.config.cjs",
+      "eslint.config.ts",
+      "eslint.config.mts",
+      "eslint.config.cts",
+      ".eslintrc",
+      ".eslintrc.js",
+      ".eslintrc.cjs",
+      ".eslintrc.mjs",
+      ".eslintrc.yaml",
+      ".eslintrc.yml",
+      ".eslintrc.json",
+      ".eslintignore",
+      "tslint.json"
     ]
   },
   "deploy_mechanism": {
     "superseded_packages": ["gh-pages"],
+    "superseded_scripts": ["predeploy", "deploy"],
+    "review_script_patterns": ["gh-pages"],
     "superseded_config_files": []
   }
 }
 ```
 
-Matching is by exact package name, so each plugin package has to be
-listed individually. `globals`, which the Vite scaffold's ESLint
-config imports, is not listed: it is not an ESLint package and a
-project may import it directly.
+`superseded_packages` matches exact names; the
+`superseded_package_patterns` regexes cover the plugin, config and
+resolver packages whose names vary by project (`eslint-plugin-*`,
+`eslint-config-*`, `@typescript-eslint/*`). `globals`, which the Vite
+scaffold's ESLint config imports, is not listed: it is not an ESLint
+package and a project may import it directly.
 
 This closes more than a linter-naming gap. Both profiles deploy
 through the `actions/deploy-pages` Actions-artifact flow, not the
@@ -201,14 +237,23 @@ same way `eslint` gets stripped in favor of `oxlint`. `astro-static`'s
 }
 ```
 
+Each role in `tool-roles.json` can use these keys, all optional:
+
+| Key | Effect |
+|---|---|
+| `superseded_packages` | Exact package names removed from `dependencies` and `devDependencies` |
+| `superseded_package_patterns` | Regexes (jq `test`) matched against those names; a name already in `superseded_packages` is skipped |
+| `superseded_scripts` | Exact names of the child's scripts removed, with each script's command logged (the old `predeploy` and `deploy` hooks of `gh-pages`); a name the profile itself declares in `scripts` is skipped |
+| `superseded_package_json_fields` | Top-level `package.json` fields removed (for example `eslintConfig`) |
+| `superseded_config_files` | Config files deleted from the target if present |
+| `review_script_patterns` | Regexes matched against the child's own scripts; a match is a warning only, and scripts the profile itself declares are skipped, since the merge overwrites them |
+
 `remove_superseded_tooling` in `lib/common.sh` reads the resolved
-profile's `tool-roles.json` and, for every role, removes any listed
-package (from `dependencies` or `devDependencies`) and deletes any
-listed config file if present in the target, before
-`merge_package_json` ever reads the target's `package.json`, so a
-package about to be removed here is never also logged as "child-only,
-preserved" in the same run. This runs automatically as the first step
-of `apply_master_config`, so both `init.sh` and `update.sh` enforce it,
+profile's `tool-roles.json` and applies these for every role before
+`merge_package_json` ever reads the target's `package.json`, so in an
+applied run a package removed here is never also logged as
+"child-only, preserved". It runs automatically as the first step of
+`apply_master_config`, so both `init.sh` and `update.sh` enforce it,
 for whichever profile was resolved.
 
 **This is a maintained list, not a one-time setup, and that's expected
@@ -224,22 +269,23 @@ a defect in the mechanism itself (Bash_Style_Guide §7: a keyword list
 is only as complete as what's been added to it, and that's a real,
 accepted tradeoff of matching by name at all, not a bug to fix later).
 
-## The four scripts
+## The six scripts
 
 | Script | Starting point | What it does |
 |---|---|---|
 | `init.sh` | Nothing (empty target) | Scaffolds a new project via the chosen profile's `scaffold_command`, brings it into parity with that profile |
 | `update.sh` | An existing project | Re-enforces parity with the chosen profile, runs that profile's route parity check if `manifest.json` declares one |
 | `convert.sh` | A legacy gulp+nunjucks project | Inventories the legacy project for LLM-assisted conversion, then scaffolds via `init.sh` under the chosen profile |
-| `verify.sh` | A project with installed dependencies | Runs `tsc -b`, `npm run build` and `npm run lint` in the target and reports PASS or FAIL for each; the completion check after `init.sh` or `update.sh` |
+| `verify.sh` | A project with installed dependencies | Runs `tsc -b`, `npm run build` and `npm run lint` in the target and reports PASS or FAIL for each, with source context for type errors; the completion check after `init.sh` or `update.sh` |
+| `inventory.sh` | A legacy gulp+nunjucks site | Read-only report of the site's git state, `package.json`, files, gulp tasks, templates, data and assets; with `--dump` it also writes the source files a port is written from |
+| `preflight.sh` | An existing project, before changing it | Applies `update.sh` to a temporary copy, verifies the copy before and after, and lists the files that would change; the real project is never written |
 
 `init.sh`, `update.sh` and `convert.sh` require both `--master-config`
 (the profiles root) and `--profile` (which one), and default to a
 **dry run**: they report what they'd do and write nothing until you
-pass `--apply`. `verify.sh` takes `--target` (and optionally
-`--install`) and has no dry run: its steps only read the project and
+pass `--apply`. `preflight.sh` takes the same three flags as `update.sh` and has no dry run because it never writes to the project, only to temporary copies. `inventory.sh` takes `--target` (and optionally `--dump`), needs no profile and never writes to the target. `verify.sh` takes `--target` (and optionally `--install` and `--context`) and has no dry run: its steps only read the project and
 write build output (`dist/`, `node_modules/.tmp`) inside the target.
-All four write a log to `logs/<target-basename>.<script>.log`,
+All six write a log to `logs/<target-basename>.<script>.log`,
 resolved relative to the script's own location (`scripts/../logs`,
 i.e. `web/logs/`) rather than `/tmp` (see Logging below).
 
@@ -363,6 +409,9 @@ is omitted below (dry run); add it to actually write anything.
 | Re-sync existing `astro-static` project | `./scripts/update.sh --master-config ./configs/base --profile astro-static --target ../my-existing-site` |
 | Convert legacy site to `vite-react` | `./scripts/convert.sh --source ../old-site --target ../new-site --master-config ./configs/base --profile vite-react` |
 | Convert legacy site to `astro-static` | `./scripts/convert.sh --source ../old-site --target ../new-site --master-config ./configs/base --profile astro-static` |
+| Inventory a legacy site | `./scripts/inventory.sh --target ../old-site` |
+| Same, plus a dump of its source files | `./scripts/inventory.sh --target ../old-site --dump` |
+| Assess a project before changing it | `./scripts/preflight.sh --master-config ./configs/base --profile vite-react --target ../my-existing-site` |
 | Verify a project (type check, build, lint) | `./scripts/verify.sh --target ../my-existing-site` |
 | Same, running `npm install` first | `./scripts/verify.sh --target ../my-existing-site --install` |
 
@@ -418,6 +467,21 @@ check) without writing
 anything. Add `--apply` to actually write the parity-enforcing changes.
 `update.sh` does not run `npm install`; after `--apply`, run it in the
 target and then `./scripts/verify.sh --target <dir>`.
+
+`--apply` refuses to start in two cases. If the target has uncommitted
+or untracked changes it stops, unless you pass `--allow-dirty`, which
+first writes a backup tarball to `logs/backups/` (without `.git`,
+`node_modules` or `dist`). If the profile declares `deploy_branch` and
+the target's default branch differs, it stops until the branch is
+renamed. Both checks are skipped when the target is not a git work
+tree; a dry run only reports them.
+
+For a project that is not yet on the profile, run
+`./scripts/preflight.sh --master-config ./configs/base --profile
+<name> --target <dir>` first. It reports the project's drift, verifies
+an unmodified copy, applies the update to a second copy, lists the
+files that changed, and verifies that copy again. It needs network
+access for `npm install`, and `--keep` leaves the copies in place.
 For a profile like `vite-react` or `astro-static`, whose `manifest.json`
 declares `"route_parity_check": "none"`, that check is skipped outright with a
 log line saying why, rather than silently no-op'd on missing files.
@@ -429,6 +493,23 @@ built from a template literal or split across lines. It correctly
 excludes dynamic segments (`:id`) and the catch-all (`*`) from the
 comparison, since those can't appear in the static pre-render `routes`
 array either.
+
+### Legacy site: read-only inventory
+
+```bash
+./scripts/inventory.sh --target ../old-site --dump
+```
+
+Reports git state, `package.json`, top-level entries, files by
+extension, gulpfile task names, templates with tag counts and
+include/extends targets, data files and `CNAME`, scripts and styles, and
+the 20 largest assets, then with `--dump` writes the gulpfile, readme,
+`.gitignore`, `CNAME`, `dev/pages`, `dev/templates`, `dev/data`, `dev/js`
+(files over 30000 bytes as their first 40 lines) and the `dev/scss`
+entry files, so a port is written from the real files. Output goes to
+the terminal and `logs/<target-basename>.inventory.log`. It is separate
+from `convert.sh`'s JSON inventory, which resolves each page's
+`extends`/`includes` and counts shared macros.
 
 ### Legacy gulp+nunjucks project
 
@@ -672,7 +753,7 @@ from, not generated output, and stays tracked.
   ordering this any other way would produce a log that contradicts
   itself within a single invocation.
 - **`reject_if_already_set` and `resolve_profile_dir` centralize
-  `--master-config`/`--profile` validation** for all three scripts.
+  `--master-config`/`--profile` validation** for every script that takes a profile.
   `resolve_profile_dir` sets `PROFILE_DIR` and is the only place that
   checks for a missing flag, a missing directory, or a missing
   profile, each with its own distinct error message, so no script's
@@ -705,3 +786,14 @@ from, not generated output, and stays tracked.
   changes something**, and merges `engines` like the other three
   fields. The file is rewritten with `jq -S`, which sorts all keys, so
   the first write to a project reorders its top-level keys once.
+- **`preflight.sh` composes `update.sh` and `verify.sh` instead of
+  reimplementing them.** It works on temporary copies named
+  `<project>.baseline` and `<project>.preflight`, so the logs it
+  produces do not overwrite the real project's, and it takes no lock
+  on the real target because the `update.sh` dry run takes its own.
+- **New checks are manifest and tool-role data, not code per
+  profile.** `merge_fields`, `requires_files`, `review_patterns`,
+  `deploy_branch` and the role keys above are read by shared functions
+  in `lib/common.sh`; a profile without them behaves as before, which
+  is why `astro-static` needed no change beyond its `always_copy`
+  list.
