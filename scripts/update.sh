@@ -19,6 +19,9 @@ Usage: update.sh --master-config <dir> --profile <name> --target <dir> [--apply]
   --target <dir>         Existing project to check/update.
   --apply                Write the parity-enforcing changes instead of
                           only reporting what would change.
+  --allow-dirty          With --apply, proceed when the target has
+                          uncommitted changes; a backup tarball is
+                          written to logs/backups/ first.
 EOF
 }
 
@@ -26,6 +29,7 @@ MASTER_CONFIG=""
 PROFILE=""
 TARGET_DIR=""
 DRY_RUN=1
+ALLOW_DIRTY=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -37,6 +41,7 @@ while [[ $# -gt 0 ]]; do
             PROFILE="$2"; shift 2 ;;
         --target)  TARGET_DIR="$2"; shift 2 ;;
         --apply)   DRY_RUN=0; shift ;;
+        --allow-dirty) ALLOW_DIRTY=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "ERROR: unknown argument: $1" >&2; usage; exit 1 ;;
     esac
@@ -51,6 +56,25 @@ acquire_target_lock "$TARGET_DIR"
 IN_SYNC=0
 DRIFTED=0
 
+check_deploy_branch "$PROFILE_DIR" "$TARGET_DIR"
+DRIFTED=$((DRIFTED + DEPLOY_BRANCH_MISMATCH))
+if (( DEPLOY_BRANCH_MISMATCH && ! DRY_RUN )); then
+    log_error "refusing --apply: fix the branch mismatch above first"
+    exit 1
+fi
+if (( ! DRY_RUN )); then
+    check_clean_tree "$TARGET_DIR"
+    if (( TARGET_DIRTY )); then
+        if (( ALLOW_DIRTY )); then
+            backup_target "$TARGET_DIR"
+            log_info "target has uncommitted changes; backup written: $BACKUP_FILE"
+        else
+            log_error "target has uncommitted changes: commit or stash them, or pass --allow-dirty (writes a backup first)"
+            exit 1
+        fi
+    fi
+fi
+
 log_info "enforcing parity against profile: $PROFILE_DIR"
 apply_master_config "$PROFILE_DIR" "$TARGET_DIR"
 DRIFTED=$((DRIFTED + APPLY_CHANGED_COUNT))
@@ -59,6 +83,10 @@ IN_SYNC=$((IN_SYNC + APPLY_UNCHANGED_COUNT))
 check_structural_markers "$PROFILE_DIR" "$TARGET_DIR"
 DRIFTED=$((DRIFTED + MARKER_MISSING_COUNT))
 IN_SYNC=$((IN_SYNC + MARKER_PRESENT_COUNT))
+
+check_required_files "$PROFILE_DIR" "$TARGET_DIR"
+DRIFTED=$((DRIFTED + REQUIRED_MISSING_COUNT))
+check_review_patterns "$PROFILE_DIR" "$TARGET_DIR"
 
 # Route parity check: static <Route path="..."> entries in App.tsx
 # (excluding dynamic segments and the catch-all) versus the routes
@@ -108,4 +136,6 @@ echo "  Profile:  $PROFILE"
 echo "  In sync:  $IN_SYNC"
 echo "  Drifted:  $DRIFTED  (see log for exactly which keys/files/routes)"
 echo "  Log:      $LOG_FILE"
-(( DRY_RUN )) && echo "  Mode:     DRY RUN - re-run with --apply to write config changes."
+if (( DRY_RUN )); then
+    echo "  Mode:     DRY RUN - re-run with --apply to write config changes."
+fi
