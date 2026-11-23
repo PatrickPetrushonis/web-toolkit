@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared functions for the gh-pages-toolkit scripts (init.sh, update.sh,
+# Shared functions for the web-toolkit scripts (init.sh, update.sh,
 # convert.sh). Sourced, not executed directly.
 #
 # Master/child policy (see README.md "Master/child relationship"): a
