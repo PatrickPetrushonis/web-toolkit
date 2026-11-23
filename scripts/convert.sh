@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Inventories a legacy gulp+nunjucks project into a structured JSON file
 # intended as LLM conversion input, and scaffolds a new project skeleton
-# via init.sh under whichever profile is specified. Does NOT attempt to
-# auto-convert template content - see README.md for why.
+# via init.sh under whichever profile is specified. With --apply it also
+# runs inventory.sh --dump on the source, so the files a port is written
+# from are captured in one run. Does NOT attempt to auto-convert template
+# content - see README.md for why.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
@@ -20,7 +22,8 @@ Usage: convert.sh --source <dir> --target <dir> --master-config <dir> --profile 
                           source of truth, not a stack.
   --profile <name>        Which profile init.sh should apply to the
                           scaffolded target. Exactly one.
-  --apply                Actually write the inventory file and scaffold
+  --apply                Actually write the inventory file, dump the
+                          source files (inventory.sh --dump) and scaffold
                           the target project. Without it, convert.sh
                           only reports what it would inventory.
 EOF
@@ -123,6 +126,7 @@ if [[ ${#MACRO_DEFS[@]} -gt 0 ]]; then
     done
 fi
 
+SOURCE_DUMP_LOG="(none, dry run)"
 INVENTORY_DIR="${SCRIPT_DIR}/../logs/inventory"
 mkdir -p -- "$INVENTORY_DIR"
 INVENTORY_FILE="$(cd "$INVENTORY_DIR" && pwd)/$(basename -- "$TARGET_DIR")_inventory.json"
@@ -137,6 +141,14 @@ if (( DRY_RUN )); then
 else
     echo "$inventory_json" | jq . > "$INVENTORY_FILE"
     log_info "wrote inventory ($TEMPLATE_COUNT templates) to: $INVENTORY_FILE"
+    SOURCE_DUMP_LOG="${SCRIPT_DIR}/../logs/$(basename -- "$(cd "$SOURCE_DIR" && pwd)").inventory.log"
+    log_info "dumping source files via inventory.sh --dump"
+    if "${SCRIPT_DIR}/inventory.sh" --target "$SOURCE_DIR" --dump > /dev/null; then
+        SOURCE_DUMP_LOG="$(cd "$(dirname "$SOURCE_DUMP_LOG")" && pwd)/$(basename "$SOURCE_DUMP_LOG")"
+    else
+        log_warn "inventory.sh --dump failed; run it by hand: inventory.sh --target $SOURCE_DIR --dump"
+        SOURCE_DUMP_LOG="(failed)"
+    fi
 fi
 
 echo
@@ -144,6 +156,7 @@ echo "Summary:"
 echo "  Templates found: $TEMPLATE_COUNT"
 echo "  Shared macros:   $(echo "$SHARED_MACROS" | jq 'length')"
 echo "  Inventory:       $INVENTORY_FILE"
+echo "  Source dump:     $SOURCE_DUMP_LOG"
 echo "  Log:              $LOG_FILE"
 echo
 echo "This inventory is scaffolding + flagging, not automated conversion:"
