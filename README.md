@@ -449,10 +449,18 @@ already run `npm install`:
 ```
 
 `verify.sh` runs `tsc -b`, `npm run build` and `npm run lint`, reports
-each result, and exits non-zero if any fails. Whether the output of
-`npm create vite@latest ... --template react-ts` passes the profile's
-`tsconfig.*` and `.oxlintrc.json` unchanged is Unknown: this toolkit
-has not run `init.sh` against the current profile.
+each result, and exits non-zero if any fails. On 2026-11-22,
+`init.sh --apply` with `vite-react` (create-vite v9.3.4, Vite 8.3.8)
+produced a project that passed all three.
+
+The scaffold command runs from the target's parent directory with the
+target's own name, because create-vite 9.3.4 created an absolute path
+under the current directory. `vite-react`'s command passes
+`--no-interactive`; without it create-vite prompts for a linter and an
+immediate install and starts the dev server. `init.sh` runs the
+command without `eval`, splitting its words on whitespace, so an
+argument in `scaffold_command` must not contain a space. The
+`astro-static` command has not been run: Unknown.
 
 ### Existing project
 
