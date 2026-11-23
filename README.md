@@ -515,9 +515,10 @@ the 20 largest assets, then with `--dump` writes the gulpfile, readme,
 `.gitignore`, `CNAME`, `dev/pages`, `dev/templates`, `dev/data`, `dev/js`
 (files over 30000 bytes as their first 40 lines) and the `dev/scss`
 entry files, so a port is written from the real files. Output goes to
-the terminal and `logs/<target-basename>.inventory.log`. It is separate
-from `convert.sh`'s JSON inventory, which resolves each page's
-`extends`/`includes` and counts shared macros.
+the terminal and `logs/<target-basename>.inventory.log`. `convert.sh
+--apply` runs it with `--dump` on its `--source`, so a conversion run
+writes both this log and `convert.sh`'s JSON inventory (below), which
+resolves each page's `extends`/`includes` and counts shared macros.
 
 ### Legacy gulp+nunjucks project
 
@@ -561,8 +562,10 @@ This is also a grep-based extraction, not a real nunjucks parser;
 known limitation: a macro or include referenced via a computed/variable
 path (not a literal string) won't be found.
 
-With `--apply`, `convert.sh` writes the inventory and then calls
-`init.sh` to scaffold the target project skeleton against the same
+With `--apply`, `convert.sh` writes the inventory, runs
+`inventory.sh --dump` on the source (output in
+`logs/<source-basename>.inventory.log`; a failure there is a warning,
+not an abort) and then calls `init.sh` to scaffold the target project skeleton against the same
 `--master-config`/`--profile` you passed in. That scaffold is at full
 profile parity from the moment it's created; nothing left to do there.
 What's left is entirely the content-porting work `convert.sh`
