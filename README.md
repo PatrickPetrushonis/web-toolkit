@@ -221,12 +221,15 @@ resolver packages whose names vary by project (`eslint-plugin-*`,
 scaffold's ESLint config imports, is not listed: it is not an ESLint
 package and a project may import it directly.
 
-This closes more than a linter-naming gap. Both profiles deploy
+This closes more than a linter-naming gap. `vite-react` deploys
 through the `actions/deploy-pages` Actions-artifact flow, not the
 `gh-pages` branch-publish CLI, so `gh-pages` is declared superseded
 under a `deploy_mechanism` role and gets stripped from any child the
-same way `eslint` gets stripped in favor of `oxlint`. `astro-static`'s
-`tool-roles.json` uses the same `deploy_mechanism` role:
+same way `eslint` gets stripped in favor of `oxlint`; its
+`superseded_scripts` entry also removes the old `predeploy` and
+`deploy` scripts. `astro-static`'s `tool-roles.json` strips `gh-pages`
+under the same role but does not remove those scripts, because that
+profile's manifest copies no workflow to replace them:
 
 ```json
 {
@@ -276,7 +279,7 @@ accepted tradeoff of matching by name at all, not a bug to fix later).
 | `init.sh` | Nothing (empty target) | Scaffolds a new project via the chosen profile's `scaffold_command`, brings it into parity with that profile |
 | `update.sh` | An existing project | Re-enforces parity with the chosen profile, runs that profile's route parity check if `manifest.json` declares one |
 | `convert.sh` | A legacy gulp+nunjucks project | Inventories the legacy project for LLM-assisted conversion, then scaffolds via `init.sh` under the chosen profile |
-| `verify.sh` | A project with installed dependencies | Runs `tsc -b`, `npm run build` and `npm run lint` in the target and reports PASS or FAIL for each, with source context for type errors; the completion check after `init.sh` or `update.sh` |
+| `verify.sh` | A project with installed dependencies | Runs the target's `type-check` script (else `tsc -b`), `npm run build` and `npm run lint` in the target and reports PASS or FAIL for each, with source context for type errors; the completion check after `init.sh` or `update.sh` |
 | `inventory.sh` | A legacy gulp+nunjucks site | Read-only report of the site's git state, `package.json`, files, gulp tasks, templates, data and assets; with `--dump` it also writes the source files a port is written from |
 | `preflight.sh` | An existing project, before changing it | Applies `update.sh` to a temporary copy, verifies the copy before and after, and lists the files that would change; the real project is never written |
 
@@ -448,8 +451,9 @@ already run `npm install`:
 ./scripts/verify.sh --target ../my-new-site
 ```
 
-`verify.sh` runs `tsc -b`, `npm run build` and `npm run lint`, reports
-each result, and exits non-zero if any fails. On 2026-11-22,
+`verify.sh` runs the project's `type-check` script when its
+`package.json` has one (else `tsc -b`), then `npm run build` and
+`npm run lint`, reports each result, and exits non-zero if any fails. On 2026-11-22,
 `init.sh --apply` with `vite-react` (create-vite v9.3.4, Vite 8.3.8)
 produced a project that passed all three.
 
@@ -460,7 +464,15 @@ under the current directory. `vite-react`'s command passes
 immediate install and starts the dev server. `init.sh` runs the
 command without `eval`, splitting its words on whitespace, so an
 argument in `scaffold_command` must not contain a space. The
-`astro-static` command has not been run: Unknown.
+`astro-static` command ran on 2026-11-22 (create-astro 5.3.2) with no
+prompt beyond npm's confirmation to install `create-astro`. Its first
+run failed lint, because the profile's `eslint.config.js` imported
+`typescript-eslint` without the profile's `package.json` listing it,
+and an update would have downgraded Astro 7 children to the profile's
+old `^5.0.0` pin. After the profile listed `typescript-eslint`,
+`@eslint/js` and `globals` (the config declares browser globals) and
+pinned `astro` `^7.4.13`, a fresh `astro-static` project passed
+`npm run type-check`, build and lint through `verify.sh`.
 
 ### Existing project
 
