@@ -50,7 +50,7 @@ done
 resolve_profile_dir
 [[ -d "$TARGET_DIR" ]] || { echo "ERROR: --target must be an existing directory" >&2; exit 1; }
 
-init_log_file "$(basename -- "$TARGET_DIR").update.log"
+init_log_file "$(target_name "$TARGET_DIR").update.log"
 acquire_target_lock "$TARGET_DIR"
 
 IN_SYNC=0

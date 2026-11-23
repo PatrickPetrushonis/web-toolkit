@@ -55,7 +55,7 @@ done
 [[ -z "$TARGET_DIR" ]] && { echo "ERROR: --target is required" >&2; exit 1; }
 resolve_profile_dir
 
-init_log_file "$(basename -- "$TARGET_DIR").convert.log"
+init_log_file "$(target_name "$TARGET_DIR").convert.log"
 # Locks on SOURCE_DIR, not TARGET_DIR: init.sh is invoked as a separate
 # process at the end of this script and takes its own lock on
 # TARGET_DIR. Locking the same target here first would make init.sh's
@@ -129,7 +129,7 @@ fi
 SOURCE_DUMP_LOG="(none, dry run)"
 INVENTORY_DIR="${SCRIPT_DIR}/../logs/inventory"
 mkdir -p -- "$INVENTORY_DIR"
-INVENTORY_FILE="$(cd "$INVENTORY_DIR" && pwd)/$(basename -- "$TARGET_DIR")_inventory.json"
+INVENTORY_FILE="$(cd "$INVENTORY_DIR" && pwd)/$(target_name "$TARGET_DIR")_inventory.json"
 
 inventory_json="$(jq -n \
     --argjson pages "$(printf '%s\n' "${PAGE_RECORDS[@]:-}" | jq -s '. - [null]')" \

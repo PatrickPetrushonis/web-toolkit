@@ -46,7 +46,7 @@ done
 [[ -f "$TARGET_DIR/package.json" ]] || { echo "ERROR: no package.json in target: $TARGET_DIR" >&2; exit 1; }
 [[ "$CONTEXT" =~ ^[0-9]+$ ]] || { echo "ERROR: --context needs a number, got: $CONTEXT" >&2; exit 1; }
 
-init_log_file "$(basename -- "$TARGET_DIR").verify.log"
+init_log_file "$(target_name "$TARGET_DIR").verify.log"
 acquire_target_lock "$TARGET_DIR"
 
 RESULTS=()

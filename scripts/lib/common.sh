@@ -749,3 +749,16 @@ remove_superseded_scripts() {
     done
     return 0
 }
+
+# --- target_name (web_toolkit_patch_target_name.sh) ------------------------
+# Prints the basename of the target's canonical path, so `--target .` or
+# `--target ..` names logs after the directory instead of ".". Works for a
+# target that does not exist yet (init.sh), using the name as given.
+target_name() {
+    local target="$1"
+    if [[ -d "$target" ]]; then
+        basename -- "$(cd "$target" && pwd)"
+    else
+        basename -- "$target"
+    fi
+}

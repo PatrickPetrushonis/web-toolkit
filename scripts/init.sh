@@ -49,7 +49,7 @@ resolve_profile_dir
 [[ -z "$TARGET_DIR" ]] && { echo "ERROR: --target is required" >&2; exit 1; }
 [[ -e "$TARGET_DIR" ]] && { echo "ERROR: target already exists: $TARGET_DIR (use update.sh, not init.sh, on an existing project)" >&2; exit 1; }
 
-init_log_file "$(basename -- "$TARGET_DIR").init.log"
+init_log_file "$(target_name "$TARGET_DIR").init.log"
 acquire_target_lock "$TARGET_DIR"
 
 check_node_version 20

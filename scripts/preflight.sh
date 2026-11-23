@@ -51,7 +51,7 @@ done
 resolve_profile_dir
 [[ -d "$TARGET_DIR" ]] || { echo "ERROR: --target must be an existing directory" >&2; exit 1; }
 TARGET_DIR="$(cd "$TARGET_DIR" && pwd)"
-NAME="$(basename -- "$TARGET_DIR")"
+NAME="$(target_name "$TARGET_DIR")"
 
 init_log_file "${NAME}.preflight.log"
 # No target lock here: the update.sh dry run below takes its own lock on
