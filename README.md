@@ -22,10 +22,13 @@ web/
 │           │   ├── manifest.json
 │           │   ├── package.json
 │           │   ├── tsconfig.json
-│           │   ├── eslint.config.js
+│           │   ├── tsconfig.app.json
+│           │   ├── tsconfig.node.json
+│           │   ├── .oxlintrc.json
 │           │   ├── .nvmrc
 │           │   ├── vite.config.ts
-│           │   └── tool-roles.json
+│           │   ├── tool-roles.json
+│           │   └── .github/workflows/deploy.yml
 │           └── astro-static/     (prerendering static-site generation)
 │               ├── manifest.json
 │               ├── package.json
@@ -38,7 +41,8 @@ web/
 └── scripts/
     ├── init.sh
     ├── update.sh
-    ├── convert.sh
+        ├── convert.sh
+    ├── verify.sh
     └── lib/
         └── common.sh
 ```
@@ -57,10 +61,15 @@ want it added rather than have one reconstructed from scratch.
 
 ## Prerequisites
 
-Linux only. `bash` 4.0+, `node` 20+, `npm`, `git`, `jq`, `flock`
+Linux only. `bash` 4.0+, `node` 20+ (see below), `npm`, `git`, `jq`, `flock`
 (`util-linux`), `sha256sum` (`coreutils`): all standard on any Linux
 distribution. Every script checks for these at startup and fails
 immediately with a clear error if one is missing (see `lib/common.sh`).
+
+The `vite-react` profile's `package.json` sets `engines.node` to
+`^20.19.0 || >=22.12.0`, and its `.nvmrc` pins `24`. The startup check
+compares the Node major version only, so a Node 20 older than 20.19
+passes the check but does not satisfy `engines`.
 
 None of these scripts should be run with `sudo`. They create
 `node_modules`, `dist`, and git commits that need to belong to your
@@ -87,7 +96,7 @@ exactly one enforced baseline per category, chosen once per project, at
 `init.sh` time, never layered or overridden afterward.
 
 - For anything a profile declares (a script, a dependency and its
-  version, `tsconfig.json`, `eslint.config.js`, `.nvmrc`), every child
+  version, `tsconfig.json`, `.oxlintrc.json`, `.nvmrc`), every child
   under that profile matches it exactly. If one child needs a new
   package that other children under the same profile will also need,
   it gets added to that profile directly, not pinned per-child, not
@@ -110,54 +119,78 @@ exactly one enforced baseline per category, chosen once per project, at
   hand-authored and only warned about, is declared per profile in that
   profile's `manifest.json`, not a fixed filename list true of every
   profile.** `vite-react`'s `manifest.json` names `tsconfig.json`,
-  `eslint.config.js`, and `.nvmrc` as always-copy and `vite.config.ts`
-  as hand-authored; `astro-static`'s names the same first three
-  always-copy files plus `astro.config.mjs` and
-  `src/content/config.ts` as hand-authored. `apply_master_config` in
-  `lib/common.sh` reads whichever profile's `manifest.json` was
-  resolved for the run; it has no hardcoded file list of its own.
-  `package.json` is always merged field-by-field regardless of
-  profile (`scripts`, `dependencies`, `devDependencies`): the profile's
-  value always wins on any shared key, and child-only keys are
-  preserved.
+  `tsconfig.app.json`, `tsconfig.node.json`, `.oxlintrc.json`,
+  `.nvmrc` and `.github/workflows/deploy.yml` as always-copy and
+  `vite.config.ts` as hand-authored; `astro-static`'s names
+  `tsconfig.json`, `eslint.config.js` and `.nvmrc` as always-copy and
+  `astro.config.mjs` and `src/content/config.ts` as hand-authored.
+  `apply_master_config` in `lib/common.sh` reads whichever profile's
+  `manifest.json` was resolved for the run; it has no hardcoded file
+  list of its own. An `always_copy` entry whose file is missing from
+  the profile only logs a warning and is skipped, so a typo in a
+  manifest fails quietly.
+  `package.json` is merged field-by-field regardless of profile
+  (`scripts`, `dependencies`, `devDependencies` and `engines`): the
+  profile's value always wins on any shared key, child-only keys are
+  preserved, and the target's own `name`, `version`, `private`, `type`
+  and other top-level fields are left as they are. It must not be
+  listed in `always_copy`: the copy runs after the merge and would
+  overwrite the child-only keys the merge just preserved.
 - `manifest.json` also declares `scaffold_command` (the actual
   `npm create ...` invocation `init.sh` runs, since a Vite scaffold and
   an Astro scaffold are different tools entirely) and
   `route_parity_check` (which named check, if any, `update.sh` should
-  run for this profile, see "The three scripts" below).
+  run for this profile, see "The four scripts" below).
 
 ### Tool roles
 
 A key-by-key merge has a blind spot on its own: if a child has
-`"lint": "oxlint"` and an `oxlint` devDependency, and the profile's
-lint role is filled by `eslint` instead, the merge forces `scripts.lint`
-to the profile's value but has no way to know `oxlint` the
-*devDependency* is now an orphan: `oxlint` isn't a key the profile
+`"lint": "eslint ."` and an `eslint` devDependency, and the profile's
+lint role is filled by `oxlint` instead, the merge forces
+`scripts.lint` to the profile's value but has no way to know `eslint`
+the *devDependency* is now an orphan: `eslint` isn't a key the profile
 mentions, so a pure key-by-key merge preserves it as if it were a
 legitimate, unrelated, project-specific package.
 
 Each profile's own `tool-roles.json` closes this gap. It's optional
 per profile (absent means this step is a no-op for that profile), and
-maps a role name to the packages and config files that role supersedes.
-`vite-react`'s:
+maps a role name to the packages and config files that role
+supersedes. `vite-react`'s:
 
 ```json
 {
   "lint": {
-    "superseded_packages": ["oxlint", "tslint", "standard"],
-    "superseded_config_files": [".eslintrc", ".eslintrc.json", ".eslintrc.js", ".oxlintrc.json", "tslint.json"]
+    "superseded_packages": [
+      "eslint", "@eslint/js", "typescript-eslint",
+      "eslint-plugin-react-hooks", "eslint-plugin-react-refresh",
+      "tslint", "standard"
+    ],
+    "superseded_config_files": [
+      "eslint.config.js", "eslint.config.mjs", "eslint.config.cjs",
+      "eslint.config.ts", "eslint.config.mts", "eslint.config.cts",
+      ".eslintrc", ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.mjs",
+      ".eslintrc.yaml", ".eslintrc.yml", ".eslintrc.json",
+      ".eslintignore", "tslint.json"
+    ]
+  },
+  "deploy_mechanism": {
+    "superseded_packages": ["gh-pages"],
+    "superseded_config_files": []
   }
 }
 ```
 
-This closes more than a linter-naming gap. `astro-static`'s
-`tool-roles.json` uses the same mechanism to enforce a framework-level
-deploy-model conflict: this profile's architecture requires the
-`actions/deploy-pages` Actions-artifact deploy flow, not the `gh-pages`
-branch-publish CLI `vite-react` uses, so `gh-pages` is declared
-superseded under a `deploy_mechanism` role, and gets stripped from any
-`astro-static` child the same way `oxlint` gets stripped in favor of
-`eslint`:
+Matching is by exact package name, so each plugin package has to be
+listed individually. `globals`, which the Vite scaffold's ESLint
+config imports, is not listed: it is not an ESLint package and a
+project may import it directly.
+
+This closes more than a linter-naming gap. Both profiles deploy
+through the `actions/deploy-pages` Actions-artifact flow, not the
+`gh-pages` branch-publish CLI, so `gh-pages` is declared superseded
+under a `deploy_mechanism` role and gets stripped from any child the
+same way `eslint` gets stripped in favor of `oxlint`. `astro-static`'s
+`tool-roles.json` uses the same `deploy_mechanism` role:
 
 ```json
 {
@@ -191,23 +224,27 @@ a defect in the mechanism itself (Bash_Style_Guide §7: a keyword list
 is only as complete as what's been added to it, and that's a real,
 accepted tradeoff of matching by name at all, not a bug to fix later).
 
-## The three scripts
+## The four scripts
 
 | Script | Starting point | What it does |
 |---|---|---|
 | `init.sh` | Nothing (empty target) | Scaffolds a new project via the chosen profile's `scaffold_command`, brings it into parity with that profile |
 | `update.sh` | An existing project | Re-enforces parity with the chosen profile, runs that profile's route parity check if `manifest.json` declares one |
 | `convert.sh` | A legacy gulp+nunjucks project | Inventories the legacy project for LLM-assisted conversion, then scaffolds via `init.sh` under the chosen profile |
+| `verify.sh` | A project with installed dependencies | Runs `tsc -b`, `npm run build` and `npm run lint` in the target and reports PASS or FAIL for each; the completion check after `init.sh` or `update.sh` |
 
-All three require both `--master-config` (the profiles root) and
-`--profile` (which one), and all three default to a **dry run**: they
-report what they'd do and write nothing until you pass `--apply`. All
-three write a log to `logs/<target-basename>.<script>.log`, resolved
-relative to the script's own location (`scripts/../logs`, i.e.
-`web/logs/`) rather than `/tmp` (see Logging below).
+`init.sh`, `update.sh` and `convert.sh` require both `--master-config`
+(the profiles root) and `--profile` (which one), and default to a
+**dry run**: they report what they'd do and write nothing until you
+pass `--apply`. `verify.sh` takes `--target` (and optionally
+`--install`) and has no dry run: its steps only read the project and
+write build output (`dist/`, `node_modules/.tmp`) inside the target.
+All four write a log to `logs/<target-basename>.<script>.log`,
+resolved relative to the script's own location (`scripts/../logs`,
+i.e. `web/logs/`) rather than `/tmp` (see Logging below).
 
-None of these scripts publish anything (no `git push`, no `gh-pages -d
-dist`, no `actions/deploy-pages` trigger). They stop at local,
+None of these scripts publish anything (no `git push`, no deploy
+trigger). They stop at local,
 reviewable file changes; publishing is a separate, manual step; see
 "Build and publish" below.
 
@@ -216,33 +253,35 @@ reviewable file changes; publishing is a separate, manual step; see
 profile that actually has client-side routing in the first place.
 Rather than guess this from whether `App.tsx` happens to exist,
 `update.sh` reads the resolved profile's `manifest.json`
-`route_parity_check` field: `"vite-react-spa"` runs the check,
-anything else (including `astro-static`'s `"none"`) skips it with an
+`route_parity_check` field: `"vite-react-spa"` runs the check, anything else skips it with an
 explicit log line stating why, not a silent file-not-found fallback.
+Both current profiles declare `"none"`: the `vite-react` baseline's
+`vite.config.ts` has no `routes` array to compare.
 
 ## Hand-authored files are never auto-applied
 
 GitHub Pages has no server-side rewrite, so a hard refresh or direct
 link to any route but `/` 404s unless something serves that route's
-HTML directly. `vite-react`'s SPA-routing plugin's job is exactly
-that: copy `index.html` into a matching directory per pre-renderable
-route, plus a `404.html` fallback for anything else. That's the
-mechanism behind the warning below, not just a name for it.
+HTML directly. The `vite-react` baseline's `vite.config.ts` is the
+React plugin only and does not handle this; a project with client-side
+routes adds its own mechanism to its own `vite.config.ts` (for example
+a plugin that copies `dist/index.html` to `dist/404.html`), which is
+one reason that file is hand-authored.
 
 Every profile's `manifest.json` names at least one file that mixes
 structural and instance-specific concerns and is therefore never
-copied, only warned about: `vite-react`'s `vite.config.ts` (React
-support and the GH Pages SPA-routing plugin are structural; image
-processing, dev-server proxies, hardcoded ports, and a project's own
-routes array are not) and `astro-static`'s `astro.config.mjs` plus
-`src/content/config.ts` (the latter's content-collection schema is
-inherently per-project: a serial-fiction site's chapter frontmatter
-and a blog's post frontmatter are different shapes). Copying any of
-these wholesale would leak one project's specifics into every other
-one under the same profile. Both `init.sh` and `update.sh` print a
-warning pointing at each `hand_authored` file for manual review instead
-of touching it; these are the files you edit by hand every time,
-profile policy notwithstanding.
+copied, only warned about: `vite-react`'s `vite.config.ts` (the React
+plugin is structural; image processing, dev-server proxies, hardcoded
+ports, a project's own SPA-fallback plugin and its own routes are not)
+and `astro-static`'s `astro.config.mjs` plus `src/content/config.ts`
+(the latter's content-collection schema is inherently per-project: a
+serial-fiction site's chapter frontmatter and a blog's post
+frontmatter are different shapes). Copying any of these wholesale
+would leak one project's specifics into every other one under the same
+profile. Both `init.sh` and `update.sh` print a warning pointing at
+each `hand_authored` file that exists in the profile, for manual
+review instead of touching it; these are the files you edit by hand
+every time, profile policy notwithstanding.
 
 ### Authoring App.tsx
 
@@ -264,53 +303,56 @@ hand under `vite-react`:
   elsewhere in this README for shell duplication, just applying to a
   file this toolkit happens not to manage.
 
-## vite-react: version and tooling rationale
+## vite-react: version and tooling baseline
 
-Why this profile's `package.json` pins what it pins, not a copy of
-the values themselves, which live in
+What this profile pins and why it can be trusted, not a copy of the
+values themselves, which live in
 `configs/base/profiles/vite-react/package.json` and would only go
 stale here if repeated.
 
-- **`vite` is pinned below `8.x`.** `vite@8.x` ships Rolldown as its
-  default engine, and a confirmed, open issue
-  ([rolldown/rolldown#9330](https://github.com/rolldown/rolldown/issues/9330))
-  reports roughly 7× higher **dev-server** memory footprint than Vite 7
-  on a large monorepo workload. Two things this isn't: a documented
-  production build-time regression (independent reporting shows Vite 8
-  builds getting *faster*, not slower), and universal (it's
-  workload-dependent; a small project may never see it). The pin is
-  about dev-server memory stability during active development, not
-  build speed; re-evaluate it if that regression is ever fixed.
-- **`@vitejs/plugin-react@^5.0.0` was confirmed against a real working
-  repo**, not trusted from that package's own changelog claims. Real
-  evidence outranks a changelog, but it's still not a guarantee this
-  profile's exact dependency tree resolves identically for you; see
-  the verification steps in "New project" below.
-- **`react-router-dom` is pinned to a specific major version
-  (`^7.7.0`)**, forced onto every child the same way any other
-  dependency this profile declares is. If a project was originally
-  written against an older major (v6-era APIs still turn up in older
-  tutorials), confirm routing still behaves correctly after
-  `init.sh`/`update.sh` runs; there's no per-project exception for
-  this key.
-- **`.nvmrc` floats on `lts/*`** rather than pinning an exact Node
-  version, a deliberate divergence from the exact-pin approach used
-  for `vite`/`@vitejs/plugin-react`, not an inconsistency. Node version
-  drift matters far less than bundler version drift for this profile's
-  actual failure mode.
+The profile is the configuration the five migrated projects (petlia,
+nine-lives-ikigai, alumni, eidetus, play-eidetus) run. Each passed
+`tsc -b`, `npm run build` and `npm run lint` and deploys through
+GitHub Actions. The original reasons for choosing each tool are not
+recorded here: Unknown.
+
+- **Vite 8 and `@vitejs/plugin-react` 6.** An earlier version of this
+  profile pinned Vite below 8 over
+  [rolldown/rolldown#9330](https://github.com/rolldown/rolldown/issues/9330),
+  a report of roughly 7× higher dev-server memory footprint than Vite
+  7 (title: "rolldown 1.0.0-rc.18 in vite 8 dev mode"). As of
+  2026-11-22 the issue page does not show whether it is open or
+  closed, and no fix is confirmed. Whether the migrated projects are
+  affected is Unknown: dev-server memory was not measured. Re-evaluate
+  if dev-server memory becomes a problem.
+- **Node.** `engines.node` is `^20.19.0 || >=22.12.0`, merged into
+  every child by `update.sh`. `.nvmrc` pins `24`, and the deploy
+  workflow reads it through `node-version-file`.
+- **TypeScript `~7.0.2`** with project references: `tsconfig.json`
+  references `tsconfig.app.json` and `tsconfig.node.json`, and `build`
+  is `tsc -b && vite build`.
+- **oxlint is the linter** (`lint` is `oxlint`). `.oxlintrc.json`
+  enables the `react`, `typescript` and `oxc` plugins, sets
+  `react/rules-of-hooks` to error and `react/only-export-components`
+  to warn, and sets `typescript/no-explicit-any` to error. That last
+  rule is in oxlint's Restriction category and oxlint enables only
+  correctness rules by default, so it has to be listed explicitly.
+  ESLint is superseded; see Tool roles.
+- **`react-router-dom` is not pinned by the profile.** The earlier
+  profile forced `^7.7.0` on every child; the current `package.json`
+  does not declare it, so a project that uses it keeps its own version
+  (as a child-only key, preserved). Confirm routing after any major
+  bump the project makes itself.
 - **No `postcss.config.js`, `autoprefixer`, or `browserslist` field.**
   This is a decision, not a gap; add them only if a specific project
   needs a stated browser-support policy, don't add them by default
   just because their absence looks unusual.
-- **`eslint.config.js` is ESLint 9's flat config.** ESLint 9 requires
-  it; there's no `.eslintrc` equivalent to fall back to, which is why
-  the file looks the way it does rather than following an older
-  convention.
 
 ## Quick reference
 
-Every invocation needs `--master-config ./configs/base` and one
-`--profile`. Substitute your own `--target`/`--source` paths; `--apply`
+Every `init.sh`, `update.sh` and `convert.sh` invocation needs
+`--master-config ./configs/base` and one `--profile`; `verify.sh` needs
+only `--target`. Substitute your own `--target`/`--source` paths; `--apply`
 is omitted below (dry run); add it to actually write anything.
 
 | Task | Command |
@@ -321,6 +363,8 @@ is omitted below (dry run); add it to actually write anything.
 | Re-sync existing `astro-static` project | `./scripts/update.sh --master-config ./configs/base --profile astro-static --target ../my-existing-site` |
 | Convert legacy site to `vite-react` | `./scripts/convert.sh --source ../old-site --target ../new-site --master-config ./configs/base --profile vite-react` |
 | Convert legacy site to `astro-static` | `./scripts/convert.sh --source ../old-site --target ../new-site --master-config ./configs/base --profile astro-static` |
+| Verify a project (type check, build, lint) | `./scripts/verify.sh --target ../my-existing-site` |
+| Same, running `npm install` first | `./scripts/verify.sh --target ../my-existing-site --install` |
 
 See "Usage" below for what each command actually does; see
 "Master/child relationship" for why `--profile` isn't optional and
@@ -348,20 +392,18 @@ run), so there's no separate install step to run afterward. Stops
 with a warning to hand-review each file in `manifest.json`'s
 `hand_authored` list.
 
-For `vite-react`, verify the pin actually resolves in this project
-before writing application code; a real precedent for one repo isn't
-a guarantee for every dependency tree:
+After `init.sh --apply`, run the verification gate. `init.sh` has
+already run `npm install`:
 
 ```bash
-npx vite -v      # expect a 7.x version, not 8.x
-npm run build    # must complete without plugin resolution errors
+./scripts/verify.sh --target ../my-new-site
 ```
 
-If `npx vite -v` prints `8.x`, `node_modules` has a stale install:
-`rm -rf node_modules package-lock.json && npm install` and recheck. If
-`npm run build` fails on plugin resolution, don't work around it with
-a version bump that pulls in Vite 8; that reintroduces the regression
-this profile pins against in the first place.
+`verify.sh` runs `tsc -b`, `npm run build` and `npm run lint`, reports
+each result, and exits non-zero if any fails. Whether the output of
+`npm create vite@latest ... --template react-ts` passes the profile's
+`tsconfig.*` and `.oxlintrc.json` unchanged is Unknown: this toolkit
+has not run `init.sh` against the current profile.
 
 ### Existing project
 
@@ -371,12 +413,13 @@ this profile pins against in the first place.
 
 Run without `--apply` first; it reports what's out of parity (which
 `package.json` keys the profile would force to a different value,
-which `always_copy` files don't byte-for-byte match the profile, and,
-for `vite-react` only, any mismatch between `App.tsx`'s routes and
-`vite.config.ts`'s SPA-routing `routes` array) without writing
+which `always_copy` files don't byte-for-byte match the profile, and, for a profile whose `manifest.json` declares one, the route parity
+check) without writing
 anything. Add `--apply` to actually write the parity-enforcing changes.
-For a profile like `astro-static` whose `manifest.json` declares
-`"route_parity_check": "none"`, that check is skipped outright with a
+`update.sh` does not run `npm install`; after `--apply`, run it in the
+target and then `./scripts/verify.sh --target <dir>`.
+For a profile like `vite-react` or `astro-static`, whose `manifest.json`
+declares `"route_parity_check": "none"`, that check is skipped outright with a
 log line saying why, rather than silently no-op'd on missing files.
 
 The route-parity check itself (when it runs) is grep-based, not a real
@@ -457,10 +500,10 @@ deliberately doesn't automate. In order:
    content is spread across its base template plus every included
    fragment; assemble all of them (or point an LLM conversion pass at
    all of them together) as one unit, not the base template alone.
-   Route the ported result per profile: a new `<Route>` in `App.tsx`
-   plus, if the route is static, a matching entry in `vite.config.ts`'s
-   `routes` array for `vite-react`; a new page file or collection entry
-   for `astro-static`.
+   Route the ported result per profile: a new `<Route>` in
+   `App.tsx` for `vite-react` (plus whatever SPA-fallback the project's
+   own `vite.config.ts` needs for a direct link to that route); a new
+   page file or collection entry for `astro-static`.
 5. **Migrate the assets each page's template chain actually
    references** (images, fonts) to the profile's convention
    (`public/` for either profile, or `src/assets/` if the profile's
@@ -486,26 +529,38 @@ resume from.
 
 ## Build and publish
 
-Every profile's `predeploy-check` script builds to `dist/` and stops
-there; publishing is always a separate, explicit step after that, not
-something either script above does for you:
+The `vite-react` profile deploys through GitHub Actions, not a
+`gh-pages` branch. `.github/workflows/deploy.yml` is in the profile's
+`always_copy` list, so `update.sh --apply` puts the same workflow in
+every child. On a push to `main` it runs `npm ci`, `npm run lint` and
+`npm run build`, then uploads `dist/` and deploys with
+`actions/deploy-pages`; pull requests run lint and build only. Nothing
+in this toolkit triggers it: commit and push are separate, manual
+steps.
 
-```bash
-npm run predeploy-check
-npx gh-pages -d dist
-```
+One-time setup per repo, in GitHub (not scripted):
 
-Before the first publish, confirm the repo's GitHub Pages settings
-point at the `gh-pages` branch (Settings → Pages → Source).
+- Settings → Pages → Source is **GitHub Actions**. A custom domain is
+  set on the same page, not through a `CNAME` file.
+- If the first deploy is rejected by the `github-pages` environment's
+  deployment-branch rule, allow `main` in that environment.
+- A workflow error of "Resource not accessible by integration" or "Get
+  Pages site failed: Not Found" means Pages is not configured or
+  enabled for the repo (both occurred during the migration, and
+  deleting a `gh-pages` branch can leave Pages in the "Not Found"
+  state until Source is set again).
 
-**If this repo is a submodule child of a parent monorepo, stop at
-`npm run predeploy-check`.** Don't run `gh-pages -d dist` from inside a
-submodule child; publishing happens from the parent after it advances
-this submodule's pinned commit, on the parent's own trigger, not from
-a script inside the child. Decide which case applies (standalone repo
-with its own Pages site, or submodule child that only builds and
-verifies itself) before the first publish, since it changes whether
-this repo has a publish step of its own at all.
+Locally, `npm run build` builds to `dist/`, and `verify.sh` runs the
+whole gate (type check, build, lint).
+
+**Submodule children: Unknown.** An earlier version of this README had
+a submodule child build and verify only, with publishing done from the
+parent. `deploy.yml` is profile-wide, so `update.sh --apply` copies it
+into a submodule child too, and it would deploy from the child's own
+repo on a push to `main`. A build-only workflow variant
+(`deploy.build-only.yml`, from the migration toolkit) is not part of
+this profile, and a profile cannot select a different file per child.
+Whether any project is such a child is Unknown.
 
 **If a project scaffolded via `init.sh` is meant to become a submodule
 of another repo (this toolkit's own `web/` included), don't scaffold
@@ -637,3 +692,16 @@ from, not generated output, and stays tracked.
   with `(( ))`**, never `[[ x < y ]]` string comparison: `"v9"` sorts
   after `"v22"` lexicographically, a real bug class documented in
   `Bash_Style_Guide.md` §2.
+- **`verify.sh` is a fourth independent entry point**, not a step
+  inside `update.sh`. `update.sh` answers whether the project matches
+  the profile; `verify.sh` answers whether it still type-checks,
+  builds and lints, which needs installed dependencies and writes
+  build output, so it takes `--target` only (plus `--install`) and has
+  no dry run. It shares `acquire_target_lock` with the others, so it
+  cannot run during an `update.sh` against the same target, and it
+  runs all three steps even after a failure so one run reports every
+  result.
+- **`merge_package_json` writes `package.json` only when the merge
+  changes something**, and merges `engines` like the other three
+  fields. The file is rewritten with `jq -S`, which sorts all keys, so
+  the first write to a project reorders its top-level keys once.
