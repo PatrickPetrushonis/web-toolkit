@@ -67,16 +67,30 @@ if [[ -z "$SCAFFOLD_CMD" ]]; then
     log_error "manifest.json has no scaffold_command: $MANIFEST"
     exit 1
 fi
-SCAFFOLD_CMD="${SCAFFOLD_CMD//\{target\}/$TARGET_DIR}"
+# Run as an argv array, not through eval: the target path can hold spaces
+# or shell metacharacters. The command's words are split on whitespace, so
+# an argument in scaffold_command must not itself contain a space.
+# create-vite 9.3.4 created an absolute --target under the current
+# directory (observed), so the scaffold runs from the target's parent with
+# the target's own name.
+TARGET_PARENT="$(cd "$(dirname -- "$TARGET_DIR")" 2>/dev/null && pwd)" || {
+    log_error "parent directory of --target does not exist: $(dirname -- "$TARGET_DIR")"
+    exit 1
+}
+TARGET_NAME="$(basename -- "$TARGET_DIR")"
+read -r -a SCAFFOLD_ARGV <<< "$SCAFFOLD_CMD"
+for i in "${!SCAFFOLD_ARGV[@]}"; do
+    SCAFFOLD_ARGV[i]="${SCAFFOLD_ARGV[i]//\{target\}/$TARGET_NAME}"
+done
 
 SYNCED=0
 UNCHANGED=0
 
 log_info "scaffolding new project at: $TARGET_DIR (profile: $PROFILE)"
 if (( DRY_RUN )); then
-    log_info "[DRY RUN] would run: $SCAFFOLD_CMD"
+    log_info "[DRY RUN] would run in $TARGET_PARENT: $(printf '%q ' "${SCAFFOLD_ARGV[@]}")"
 else
-    eval "$SCAFFOLD_CMD"
+    ( cd "$TARGET_PARENT" && "${SCAFFOLD_ARGV[@]}" )
 fi
 
 # Whatever default config files the scaffold tool ships (Vite's own
