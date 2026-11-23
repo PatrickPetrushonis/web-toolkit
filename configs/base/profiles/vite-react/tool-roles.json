@@ -1,14 +1,34 @@
 {
   "lint": {
-    "superseded_packages": ["oxlint", "tslint", "standard"],
-    "superseded_config_files": [".eslintrc", ".eslintrc.json", ".eslintrc.js", ".oxlintrc.json", "tslint.json"]
+    "superseded_packages": [
+      "eslint",
+      "@eslint/js",
+      "typescript-eslint",
+      "eslint-plugin-react-hooks",
+      "eslint-plugin-react-refresh",
+      "tslint",
+      "standard"
+    ],
+    "superseded_config_files": [
+      "eslint.config.js",
+      "eslint.config.mjs",
+      "eslint.config.cjs",
+      "eslint.config.ts",
+      "eslint.config.mts",
+      "eslint.config.cts",
+      ".eslintrc",
+      ".eslintrc.js",
+      ".eslintrc.cjs",
+      ".eslintrc.mjs",
+      ".eslintrc.yaml",
+      ".eslintrc.yml",
+      ".eslintrc.json",
+      ".eslintignore",
+      "tslint.json"
+    ]
   },
-  "test_runner": {
-    "superseded_packages": ["jest", "mocha", "jasmine-core"],
-    "superseded_config_files": ["jest.config.js", "jest.config.ts", ".mocharc.json"]
-  },
-  "bundler": {
-    "superseded_packages": ["webpack", "webpack-cli", "parcel"],
-    "superseded_config_files": ["webpack.config.js", ".parcelrc"]
+  "deploy_mechanism": {
+    "superseded_packages": ["gh-pages"],
+    "superseded_config_files": []
   }
 }

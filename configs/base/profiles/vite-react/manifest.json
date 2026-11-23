@@ -1,9 +1,16 @@
 {
   "scaffold_command": "npm create vite@latest {target} -- --template react-ts",
-  "always_copy": ["package.json", "tsconfig.json", "eslint.config.js", ".nvmrc"],
+  "always_copy": [
+    "tsconfig.json",
+    "tsconfig.app.json",
+    "tsconfig.node.json",
+    ".oxlintrc.json",
+    ".nvmrc",
+    ".github/workflows/deploy.yml"
+  ],
   "hand_authored": ["vite.config.ts"],
   "structural_markers": {
-    "vite.config.ts": "gh-pages-spa-routes"
+    "vite.config.ts": "@vitejs/plugin-react"
   },
-  "route_parity_check": "vite-react-spa"
+  "route_parity_check": "none"
 }
