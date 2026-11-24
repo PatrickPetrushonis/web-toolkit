@@ -1,0 +1,36 @@
+{
+  "scaffold_command": "npm create vite@latest {target} -- --template react-ts --no-interactive",
+  "always_copy": [
+    "tsconfig.json",
+    "tsconfig.app.json",
+    "tsconfig.node.json",
+    ".oxlintrc.json",
+    ".nvmrc",
+    ".github/workflows/deploy-cloudflare.yml"
+  ],
+  "hand_authored": [
+    "vite.config.ts"
+  ],
+  "structural_markers": {
+    "vite.config.ts": "@vitejs/plugin-react"
+  },
+  "merge_fields": [
+    "scripts",
+    "dependencies",
+    "devDependencies",
+    "engines",
+    "type"
+  ],
+  "requires_files": [
+    "package-lock.json"
+  ],
+  "review_patterns": [
+    {
+      "file": "vite.config.ts",
+      "pattern": "outDir",
+      "message": "the deploy uploads ./dist through wrangler assets.directory; confirm the build output directory matches wrangler.jsonc"
+    }
+  ],
+  "deploy_branch": "main",
+  "route_parity_check": "none"
+}
