@@ -1,12 +1,13 @@
 # Web Toolkit
 
-Bash scripts that bring GitHub Pages projects into exact parity with
-one chosen profile, at three different starting points: new,
-existing, and legacy (pre-migration). Each project is built under one
-**profile**: a self-contained baseline for one category of site
-(`vite-react` for client-routed SPAs, `astro-static` for prerendering
-static-site generation). Profiles are never mixed; see "Master/child
-relationship" below for why.
+Bash scripts that bring web projects into exact parity with one
+chosen profile, at three different starting points: new, existing, and
+legacy (pre-migration). Each project is built under one **profile**: a
+self-contained baseline for one category of site (`vite-react` for
+client-routed SPAs deployed through GitHub Pages, `astro-static` for
+prerendering static-site generation, `vite-react-cloudflare` for
+client-routed SPAs deployed to Cloudflare). Profiles are never mixed;
+see "Master/child relationship" below for why.
 
 ## Layout
 
@@ -29,16 +30,28 @@ web/
 │           │   ├── vite.config.ts
 │           │   ├── tool-roles.json
 │           │   └── .github/workflows/deploy.yml
-│           └── astro-static/     (prerendering static-site generation)
+│           ├── astro-static/     (prerendering static-site generation)
+│           │   ├── manifest.json
+│           │   ├── package.json
+│           │   ├── tsconfig.json
+│           │   ├── eslint.config.js
+│           │   ├── .nvmrc
+│           │   ├── scripts/check_styles.py
+│           │   ├── astro.config.mjs
+│           │   ├── src/content/config.ts
+│           │   └── tool-roles.json
+│           └── vite-react-cloudflare/  (client-routed SPA deployed to Cloudflare)
 │               ├── manifest.json
 │               ├── package.json
 │               ├── tsconfig.json
-│               ├── eslint.config.js
+│               ├── tsconfig.app.json
+│               ├── tsconfig.node.json
+│               ├── .oxlintrc.json
 │               ├── .nvmrc
+│               ├── vite.config.ts
+│               ├── tool-roles.json
 │               ├── scripts/check_styles.py
-│               ├── astro.config.mjs
-│               ├── src/content/config.ts
-│               └── tool-roles.json
+│               └── .github/workflows/deploy-cloudflare.yml
 └── scripts/
     ├── init.sh
     ├── update.sh
@@ -126,7 +139,11 @@ exactly one enforced baseline per category, chosen once per project, at
   `.nvmrc` and `.github/workflows/deploy.yml` as always-copy and
   `vite.config.ts` as hand-authored; `astro-static`'s names
   `tsconfig.json`, `eslint.config.js`, `.nvmrc` and `scripts/check_styles.py` as always-copy and
-  `astro.config.mjs` and `src/content/config.ts` as hand-authored.
+  `astro.config.mjs` and `src/content/config.ts` as hand-authored;
+  `vite-react-cloudflare`'s names `tsconfig.json`, `tsconfig.app.json`,
+  `tsconfig.node.json`, `.oxlintrc.json`, `.nvmrc`,
+  `.github/workflows/deploy-cloudflare.yml` and `scripts/check_styles.py`
+  as always-copy and `vite.config.ts` as hand-authored.
   `apply_master_config` in `lib/common.sh` reads whichever profile's
   `manifest.json` was resolved for the run; it has no hardcoded file
   list of its own. An `always_copy` entry whose file is missing from
@@ -305,8 +322,8 @@ Rather than guess this from whether `App.tsx` happens to exist,
 `update.sh` reads the resolved profile's `manifest.json`
 `route_parity_check` field: `"vite-react-spa"` runs the check, anything else skips it with an
 explicit log line stating why, not a silent file-not-found fallback.
-Both current profiles declare `"none"`: the `vite-react` baseline's
-`vite.config.ts` has no `routes` array to compare.
+All three current profiles declare `"none"`: none of their
+`vite.config.ts` files has a `routes` array to compare.
 
 ## Hand-authored files are never auto-applied
 
@@ -366,11 +383,10 @@ nine-lives-ikigai, alumni, eidetus, play-eidetus) run. Each passed
 GitHub Actions. The original reasons for choosing each tool are not
 recorded here: Unknown.
 
-- **Vite 8 and `@vitejs/plugin-react` 6.** An earlier version of this
-  profile pinned Vite below 8 over
-  [rolldown/rolldown#9330](https://github.com/rolldown/rolldown/issues/9330),
-  a report of roughly 7× higher dev-server memory footprint than Vite
-  7 (title: "rolldown 1.0.0-rc.18 in vite 8 dev mode"). As of
+- **Vite 8 and `@vitejs/plugin-react` 6.**
+  [rolldown/rolldown#9330](https://github.com/rolldown/rolldown/issues/9330)
+  reports roughly 7× higher dev-server memory footprint than Vite 7
+  (title: "rolldown 1.0.0-rc.18 in vite 8 dev mode"). As of
   2026-11-22 the issue page does not show whether it is open or
   closed, and no fix is confirmed. Whether the migrated projects are
   affected is Unknown: dev-server memory was not measured. Re-evaluate
@@ -388,15 +404,43 @@ recorded here: Unknown.
   rule is in oxlint's Restriction category and oxlint enables only
   correctness rules by default, so it has to be listed explicitly.
   ESLint is superseded; see Tool roles.
-- **`react-router-dom` is not pinned by the profile.** The earlier
-  profile forced `^7.7.0` on every child; the current `package.json`
-  does not declare it, so a project that uses it keeps its own version
-  (as a child-only key, preserved). Confirm routing after any major
-  bump the project makes itself.
+- **`react-router-dom` is not pinned by the profile.** A project that
+  uses it keeps its own version (as a child-only key, preserved).
+  Confirm routing after any major bump the project makes itself.
 - **No `postcss.config.js`, `autoprefixer`, or `browserslist` field.**
   This is a decision, not a gap; add them only if a specific project
   needs a stated browser-support policy, don't add them by default
   just because their absence looks unusual.
+
+## vite-react-cloudflare: baseline
+
+The `vite-react` baseline with a Cloudflare deploy in place of GitHub
+Pages. Package versions live in
+`configs/base/profiles/vite-react-cloudflare/package.json` and are not
+repeated here.
+
+- **Scaffold:** `npm create vite@latest {target} -- --template react-ts
+  --no-interactive`, from the profile's `scaffold_command`.
+- **Always-copy files:** `tsconfig.json`, `tsconfig.app.json`,
+  `tsconfig.node.json`, `.oxlintrc.json`, `.nvmrc`,
+  `.github/workflows/deploy-cloudflare.yml` and
+  `scripts/check_styles.py`.
+- **Hand-authored:** `vite.config.ts`. `update.sh` warns and does not
+  copy it, and checks that it contains `@vitejs/plugin-react`. It also
+  flags any `outDir` setting, because the deploy uploads `./dist`
+  through wrangler's `assets.directory` and the two must match
+  `wrangler.jsonc`.
+- **Merged `package.json` fields:** `scripts`, `dependencies`,
+  `devDependencies`, `engines` and `type`. `package-lock.json` is
+  required.
+- **Deploy:** `deploy-cloudflare.yml` lints, type-checks the Worker,
+  builds, applies D1 migrations and deploys the Worker on a push to
+  `main`. Pull requests run lint, type-check and build only. It
+  expects a D1 binding named `DB` and Worker sources in `worker/` with
+  their own `tsconfig.json`, both set in the project's `wrangler.jsonc`.
+  Operational facts for the Worker, D1 and Access setup are in
+  `cloudflare_runbook.md`.
+- **Route parity check:** none.
 
 ## Quick reference
 
@@ -409,8 +453,10 @@ is omitted below (dry run); add it to actually write anything.
 |---|---|
 | New `vite-react` project | `./scripts/init.sh --master-config ./configs/base --profile vite-react --target ../my-new-site` |
 | New `astro-static` project | `./scripts/init.sh --master-config ./configs/base --profile astro-static --target ../my-new-site` |
+| New `vite-react-cloudflare` project | `./scripts/init.sh --master-config ./configs/base --profile vite-react-cloudflare --target ../my-new-site` |
 | Re-sync existing `vite-react` project | `./scripts/update.sh --master-config ./configs/base --profile vite-react --target ../my-existing-site` |
 | Re-sync existing `astro-static` project | `./scripts/update.sh --master-config ./configs/base --profile astro-static --target ../my-existing-site` |
+| Re-sync existing `vite-react-cloudflare` project | `./scripts/update.sh --master-config ./configs/base --profile vite-react-cloudflare --target ../my-existing-site` |
 | Convert legacy site to `vite-react` | `./scripts/convert.sh --source ../old-site --target ../new-site --master-config ./configs/base --profile vite-react` |
 | Convert legacy site to `astro-static` | `./scripts/convert.sh --source ../old-site --target ../new-site --master-config ./configs/base --profile astro-static` |
 | Inventory a legacy site | `./scripts/inventory.sh --target ../old-site` |
@@ -658,9 +704,7 @@ One-time setup per repo, in GitHub (not scripted):
 Locally, `npm run build` builds to `dist/`, and `verify.sh` runs the
 whole gate (type check, build, lint).
 
-**Submodule children: Unknown.** An earlier version of this README had
-a submodule child build and verify only, with publishing done from the
-parent. `deploy.yml` is profile-wide, so `update.sh --apply` copies it
+**Submodule children: Unknown.** `deploy.yml` is profile-wide, so `update.sh --apply` copies it
 into a submodule child too, and it would deploy from the child's own
 repo on a push to `main`. A build-only workflow variant
 (`deploy.build-only.yml`, from the migration toolkit) is not part of
@@ -670,7 +714,7 @@ Whether any project is such a child is Unknown.
 **If a project scaffolded via `init.sh` is meant to become a submodule
 of another repo (this toolkit's own `web/` included), don't scaffold
 it with `--target` pointed inside that parent repo's working tree to
-get there.** Neither profile's `scaffold_command` initializes git on
+get there.** No profile's `scaffold_command` initializes git on
 its own (`create-vite` never does by default; `astro-static`'s command
 already passes `--no-git` explicitly), so nesting the target there
 doesn't create an embedded-repo warning: it just leaves plain files
