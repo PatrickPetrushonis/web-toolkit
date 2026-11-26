@@ -35,6 +35,7 @@ web/
 │               ├── tsconfig.json
 │               ├── eslint.config.js
 │               ├── .nvmrc
+│               ├── scripts/check_styles.py
 │               ├── astro.config.mjs
 │               ├── src/content/config.ts
 │               └── tool-roles.json
@@ -124,7 +125,7 @@ exactly one enforced baseline per category, chosen once per project, at
   `tsconfig.app.json`, `tsconfig.node.json`, `.oxlintrc.json`,
   `.nvmrc` and `.github/workflows/deploy.yml` as always-copy and
   `vite.config.ts` as hand-authored; `astro-static`'s names
-  `tsconfig.json`, `eslint.config.js` and `.nvmrc` as always-copy and
+  `tsconfig.json`, `eslint.config.js`, `.nvmrc` and `scripts/check_styles.py` as always-copy and
   `astro.config.mjs` and `src/content/config.ts` as hand-authored.
   `apply_master_config` in `lib/common.sh` reads whichever profile's
   `manifest.json` was resolved for the run; it has no hardcoded file
