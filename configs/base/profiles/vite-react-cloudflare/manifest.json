@@ -6,7 +6,8 @@
     "tsconfig.node.json",
     ".oxlintrc.json",
     ".nvmrc",
-    ".github/workflows/deploy-cloudflare.yml"
+    ".github/workflows/deploy-cloudflare.yml",
+    "scripts/check_styles.py"
   ],
   "hand_authored": [
     "vite.config.ts"
