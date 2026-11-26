@@ -71,7 +71,7 @@ reject_if_already_set() {
 # letting a later, less specific check catch an earlier problem
 # transitively. Centralized here so init.sh, update.sh, and convert.sh
 # share one implementation instead of three independent copies that
-# can silently diverge from each other (Bash_Style_Guide §4). Sets
+# can silently diverge from each other (script_style_guide.md §3). Sets
 # PROFILE_DIR. Callers must set MASTER_CONFIG and PROFILE before
 # calling.
 resolve_profile_dir() {
@@ -149,7 +149,7 @@ acquire_target_lock() {
 
 # Extracts the numeric Node major version from `node -v` and compares
 # it against MIN_MAJOR using arithmetic, never string comparison
-# (Bash_Style_Guide #2 - "v9" sorts after "v22" lexicographically).
+# (script_style_guide.md §12 - "v9" sorts after "v22" lexicographically).
 # Sets NODE_MAJOR. Exits the script if node is below MIN_MAJOR.
 check_node_version() {
     local min_major="$1"
@@ -248,7 +248,7 @@ report_package_changes() {
 # ongoing part of maintaining the master config, not a one-time setup
 # step - a role/package/file not yet listed is not detected, the same
 # way any keyword list only covers what has been added to it
-# (Bash_Style_Guide §7). Must run before merge_package_json reads
+# (script_style_guide.md §6). Must run before merge_package_json reads
 # target's package.json, so a package being removed here is never also
 # logged as "child-only, preserved" by report_package_changes in the
 # same run. Sets SUPERSEDED_REMOVED_COUNT. Respects DRY_RUN.
@@ -445,7 +445,7 @@ apply_master_config() {
 # each call site stays separate on purpose - copy-and-count, warn-only,
 # grep-and-count, and tool removal are different enough operations
 # that forcing them through one dispatcher would trade readable loops
-# for indirect function calls with no real gain (Bash_Style_Guide §4:
+# for indirect function calls with no real gain (script_style_guide.md §3:
 # don't force an abstraction when the duplication itself is cheaper
 # than the abstraction). Sets MANIFEST_ARRAY.
 read_jq_array() {

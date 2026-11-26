@@ -269,7 +269,7 @@ sit there undetected, the same blind spot this file exists to close for
 the tools already listed. Keeping each profile's list current as its
 ecosystem changes is an ongoing part of maintaining that profile, the
 same way keeping `package.json`'s own pinned versions current is, not
-a defect in the mechanism itself (Bash_Style_Guide §7: a keyword list
+a defect in the mechanism itself (script_style_guide.md §6: a keyword list
 is only as complete as what's been added to it, and that's a real,
 accepted tradeoff of matching by name at all, not a bug to fix later).
 
@@ -349,7 +349,7 @@ hand under `vite-react`:
   route (the same layout component around every page, only the path,
   title, and data differing), generate it from a mapped array of
   `{path, title, Component, data}` instead of reproducing that block
-  once per route. Same Bash_Style_Guide §4 rule already cited
+  once per route. Same script_style_guide.md §3 rule already cited
   elsewhere in this README for shell duplication, just applying to a
   file this toolkit happens not to manage.
 
@@ -692,7 +692,7 @@ under `logs/` at the repo root (`web/logs/`) via `init_log_file` in
 `lib/common.sh`: never `/tmp`, and never dependent on the caller's
 current directory. This matches the same script-relative-default
 principle already applied to `.nvmrc`/master-config resolution
-elsewhere in these scripts (Bash_Style_Guide §5: a default output path
+elsewhere in these scripts (script_style_guide.md §4: a default output path
 should resolve relative to the script's own location, not the caller's
 cwd).
 
@@ -796,7 +796,7 @@ from, not generated output, and stays tracked.
 - **Node version checks extract the numeric major version and compare
   with `(( ))`**, never `[[ x < y ]]` string comparison: `"v9"` sorts
   after `"v22"` lexicographically, a real bug class documented in
-  `Bash_Style_Guide.md` §2.
+  `script_style_guide.md` §12.
 - **`verify.sh` is a fourth independent entry point**, not a step
   inside `update.sh`. `update.sh` answers whether the project matches
   the profile; `verify.sh` answers whether it still type-checks,
